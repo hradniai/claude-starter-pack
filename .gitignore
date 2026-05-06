@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backups created by cc-config or manual edits
+*.bak
+*.bak-*
+*.backup
+
+# Local-only env files (never commit credentials)
+.env
+.env.local
+.env.*.local
+
+# OS / shell artifacts
+.zsh_history
+.bash_history
