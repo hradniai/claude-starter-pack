@@ -49,6 +49,12 @@ DANGEROUS = [
      'docker mounting host root filesystem'),
     (r'docker\s+run\s+[^#\n]*--privileged\b',
      'docker --privileged flag'),
+    (r'\b(cat|less|more|head|tail|bat|nl|xxd|od|grep|egrep|fgrep|rg|ag|sqlite3)\s+[^|;&]*Library/(Cookies|Safari|Application Support/Google/Chrome|Application Support/Chromium|Application Support/Firefox|Application Support/BraveSoftware|Application Support/Microsoft Edge|Application Support/Arc)/',
+     'reading browser data (cookies/history/sessions) via bash'),
+    (r'\b(cat|less|more|head|tail|bat|nl|xxd|od|grep|egrep|fgrep|rg|ag|sqlite3)\s+[^|;&]*\.(mozilla|config/google-chrome|config/chromium)/',
+     'reading browser data on Linux via bash'),
+    (r'\bpython3?\s+-c\s+["\'][^"\']*\b(os\.system|subprocess\.|shutil\.rmtree|os\.remove|os\.unlink|os\.rmdir|os\.path\.expanduser.*\.(env|ssh|aws|gnupg))',
+     'python -c bypass invoking shell or touching sensitive paths'),
 ]
 
 

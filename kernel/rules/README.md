@@ -10,6 +10,7 @@ Files in this directory are auto-loaded into every Claude Code session as system
 | `respect-denies.md` | Behavior when permission engine blocks a command — never bypass, inform user |
 | `subagent-rules.md` | When to use subagents, which type to pick, inheritance limits, dispatch quality |
 | `notes-convention.md` | `notes.md` format and the `→ research` auto-trigger |
+| `czech-output.md` | Czech-language output: native Czech style, banned AI calques, typography. Inert for non-Czech work. |
 
 ## Adding your own rules
 
@@ -28,6 +29,7 @@ Delete the file. Rules are loose-coupled — removing one doesn't break the othe
 - Removing `documentation-standard.md` may regress doc quality and lose AGENTS.md/CLAUDE.md convention
 - Removing `subagent-rules.md` may cause subagent dispatch failures (especially MCP-related)
 - Removing `notes-convention.md` will disable the `→ research` auto-trigger workflow
+- Removing `czech-output.md` means Czech outputs will drift toward translated-English style — irrelevant if your team doesn't write Czech
 
 ## Custom rules vs. project-level
 

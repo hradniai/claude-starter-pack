@@ -123,6 +123,17 @@
       "Read(~/.npmrc)",
       "Read(~/.pypirc)",
       "Read(~/Library/Keychains/**)",
+      "Read(~/Library/Cookies/**)",
+      "Read(~/Library/Safari/**)",
+      "Read(~/Library/Application Support/Google/Chrome/**)",
+      "Read(~/Library/Application Support/Chromium/**)",
+      "Read(~/Library/Application Support/Firefox/**)",
+      "Read(~/Library/Application Support/BraveSoftware/**)",
+      "Read(~/Library/Application Support/Microsoft Edge/**)",
+      "Read(~/Library/Application Support/Arc/**)",
+      "Read(~/.mozilla/**)",
+      "Read(~/.config/google-chrome/**)",
+      "Read(~/.config/chromium/**)",
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(**/.env)",
@@ -167,6 +178,15 @@
             "command": "~/.claude/hooks/bash-safety-extended.py"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/context-bloat-guard.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -196,6 +216,10 @@
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
   },
   "env": {
     "DISABLE_TELEMETRY": "1",

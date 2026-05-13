@@ -22,12 +22,29 @@ Run these checks and report results in a single message:
    - **MINGW / MSYS / CYGWIN** or PowerShell → **Windows.** Stop and tell the user:
      > "This starter pack assumes a Unix-like shell. On Windows, the cleanest path is **WSL2** (Windows Subsystem for Linux) — install Ubuntu via Microsoft Store, run Claude Code inside WSL, and use this pack as on Linux. Native Windows is possible but requires manual path adjustments throughout (`%USERPROFILE%` vs `$HOME`, backslash vs forward slash, no symlinks without admin) — not recommended for first install. Do you want to continue with WSL setup or quit and install WSL first?"
 2. **Required binaries** — verify `python3`, `node`, `git`, `jq`, `curl` are installed and on PATH. Report versions.
-   - On macOS: `brew install jq` if missing.
-   - On Linux: `apt install jq` or distro-equivalent.
+
+   If any are missing, **stop** and give the user OS-specific install commands. Do NOT install dependencies yourself — that's a system change requiring the user's explicit choice of how to manage their package manager.
+
+   - **macOS via Homebrew (recommended):**
+     ```bash
+     # If brew itself is missing first:
+     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+     # Then:
+     brew install python3 node git jq curl
+     ```
+   - **Linux (Debian/Ubuntu):**
+     ```bash
+     sudo apt update && sudo apt install -y python3 nodejs git jq curl
+     ```
+   - **Linux (Fedora/RHEL):**
+     ```bash
+     sudo dnf install -y python3 nodejs git jq curl
+     ```
+
+   After the user installs missing tools, run the check again. Do not proceed until all five pass.
+
 3. **Existing `~/.claude/`** — `ls -la ~/.claude/ 2>/dev/null | wc -l`. Report whether it exists and how many entries.
 4. **Existing workspace dirs** — by default, the pack uses `~/Documents/_CONTEXT`, `~/Documents/_CLIENTS`, `~/Documents/_BUSINESS`, `~/Documents/_APPS`. Check if any exist. (Workspace location is user-customizable in Step 4.)
-
-If any required binary is missing, stop and tell the user how to install it. Do not proceed.
 
 ## Step 2 — Backup existing `~/.claude/`
 
@@ -50,10 +67,16 @@ kernel/ → ~/.claude/
 Files going in:
 - `settings.json` (restrictive baseline; bypass mode locked off)
 - `AGENTS.md` + `CLAUDE.md` (symlink)
-- `rules/` (four rules)
+- `statusline.sh` — three-line live status (model · cost / project · ctx / 5h · 7d rate limits)
+- `rules/` (five rules)
 - `scripts/list-env-keys.sh`
-- `hooks/bash-safety-extended.py` + `hooks/notes-research.sh` + `hooks/inbox-processor.sh` + `hooks/inject-current-time.sh`
-- `skills/setup/`, `skills/skill-creator/`, `skills/prd-creator/`, `skills/dr-prompt/`
+- `hooks/`:
+  - `bash-safety-extended.py` (PreToolUse Bash) — blocks bypass patterns
+  - `context-bloat-guard.py` (PreToolUse Read) — soft brake on huge file reads
+  - `notes-research.sh` (PostToolUse Edit/Write) — auto-research on `notes.md` markers
+  - `inbox-processor.sh` (PostToolUse Edit/Write) — extracts inbox documents to KB drafts
+  - `inject-current-time.sh` (UserPromptSubmit) — current time in every prompt
+- `skills/setup/`, `skills/skill-creator/`, `skills/prd-creator/`, `skills/dr-prompt/`, `skills/client-data-check/`
 - `templates/` (five scaffolding templates: klient, dev, business, app, general)
 - `agents/` (empty placeholder + README)
 
@@ -83,19 +106,39 @@ The starter pack's workspace structure consists of four top-level directories:
   _APPS/       — small tools and apps you build
 
 Question 1: where should these directories live?
-  Default: ~/Documents/
-  Type a different path or press Enter for default.
+  1. ~/Documents/ (default — visible in Finder/Explorer, easy access)
+  2. ~/ (directly in home)
+  3. ~/Documents/Work/ or another sub-folder — name it
+  4. Outside home, e.g. /Volumes/Work/ (external drive) or ~/Code/
+
+  Paths with spaces work but are discouraged — Bash doesn't like them.
 
 Question 2: do you want to rename any of the directories?
   Defaults shown above. You can use any names that fit your work.
   Some users prefer English plain names (clients/, business/, apps/).
   Some prefer keeping the underscore prefix (_CLIENTS/) for visual sorting.
+  Some prefer native-language names in their own language.
   Type space-separated overrides or press Enter to keep defaults.
   Format: <context-dir> <clients-dir> <business-dir> <apps-dir>
   Example: context clients business apps
 ```
 
-Apply user's answers. Use the chosen base path + chosen names throughout the rest of the install.
+Apply user's answers. Store the chosen base path. **Use it for the rest of the install.** Never fall back to `~/Documents/` after they chose something else.
+
+### Block A2 — Conflict check
+
+For each chosen directory, check if it already exists at the chosen base path:
+
+```bash
+for dir in <name1> <name2> <name3> <name4>; do
+  if [ -e "<base-path>/$dir" ]; then echo "EXISTS: $dir"; else echo "free: $dir"; fi
+done
+```
+
+If any exist: **never overwrite.** Tell the user, and offer:
+1. Skip that one (don't copy from the Pack, keep the user's existing content)
+2. Rename the Pack's version (e.g. add `-new` suffix) so the user can merge manually
+3. Abort and let the user move/rename their existing directory first
 
 ### Block B — Personal profile (one round of questions)
 
