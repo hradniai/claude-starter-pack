@@ -25,9 +25,9 @@ A curated baseline configuration for Claude Code: hard safety defaults, opiniona
 ### File convention
 Every project root has both `AGENTS.md` (canonical, cross-tool standard) and `CLAUDE.md` (symlink). One source of truth, readable by Claude Code, Cursor, Codex, Gemini CLI, Aider, and any other AGENTS.md-aware tool.
 
-## New to Claude Code?
+## Pro úplné začátečníky (česky)
 
-If your AI experience so far is *"I have a project in claude.ai and I ask it things,"* start with **[`USER-MANUAL.md`](USER-MANUAL.md)** — plain-language explanation of what the Pack is, why it exists, and how to install and use it. No prior terminal experience assumed.
+Pokud je tvoje zkušenost s AI claude.ai a nic víc — začni krátkým [**`UZIVATELSKY-MANUAL.md`**](UZIVATELSKY-MANUAL.md). Přečteš za půl minuty, dozvíš se, co Pack dělá a proč.
 
 ## Install
 
