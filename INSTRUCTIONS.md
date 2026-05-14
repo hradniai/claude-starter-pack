@@ -41,7 +41,7 @@ In plan mode, present the plan via `ExitPlanMode`. The user approves there, plan
 5. Only after explicit approval, start executing.
 6. After the install finishes (Step 11), delete `./INSTALL-PLAN.md` — it was a working artifact, not a deliverable.
 
-Either way: **no destructive action and no copy operation happens before the user has approved a written plan.** Step 1 (read-only checks) is the only thing that may run before the plan exists.
+Either way: **no change action and no copy operation happens before the user has approved a written plan.** Step 1 (read-only checks) is the only thing that may run before the plan exists.
 
 ## Step 1 — Pre-flight check
 
@@ -76,6 +76,8 @@ Run these checks and report results in a single message:
 
 3. **Existing `~/.claude/`** — `ls -la ~/.claude/ 2>/dev/null | wc -l`. Report whether it exists and how many entries.
 4. **Existing workspace dirs** — by default, the pack uses `~/Documents/_CONTEXT`, `~/Documents/_CLIENTS`, `~/Documents/_BUSINESS`, `~/Documents/_APPS`. Check if any exist. (Workspace location is user-customizable in Step 4.)
+5. **Read all content in `docs` from this repo.**
+6. **Ask the user where the directories (_CONTEXT, _CLIENTS, _BUSINESS, _APPS) should be placed, and whether they should be renamed.** Also clarify any other details that need to be addressed before the plan is presented and accepted.
 
 ## Step 2 — Backup existing `~/.claude/`
 
