@@ -7,27 +7,27 @@ A curated baseline configuration for Claude Code: hard safety defaults, opiniona
 ## What you get
 
 ### Kernel (`~/.claude/`)
-- **Restrictive `settings.json`** — destructive bash patterns, sensitive file reads, and `--no-verify` style escapes are denied at the global level. Bypass mode is locked off.
-- **Safety hook** — catches two-step download-execute, subshell bypasses, and other patterns that simple deny rules miss.
-- **Auto-research hook** — detects unmarked notes in `notes.md` files, dispatches background research via the Anthropic API, marks each as ✅ (research done) or ⏭️ (skipped).
-- **Inbox-processor hook** — extracts knowledge from documents dropped in `docs/inbox/` to a knowledge-base drafts area.
-- **Time-injection hook** — adds the current local time to Claude's context every prompt (so timestamps in notes are accurate).
-- **Four baseline rules** — documentation standard, respect-denies behavior, subagent usage guide, notes convention.
-- **Four bundled skills** — `setup` (project scaffolding), `skill-creator`, `prd-creator`, `dr-prompt`.
-- **Helper script** — `list-env-keys.sh` lets Claude see *names* of your credential env vars without ever touching values.
+- **Restrictive `settings.json`** - destructive bash patterns, sensitive file reads, and `--no-verify` style escapes are denied at the global level. Bypass mode is locked off.
+- **Safety hook** - catches two-step download-execute, subshell bypasses, secret-file reads (every `.env` except the deliberate `.env.local` handoff), and other patterns that simple deny rules miss.
+- **Auto-research hook** - detects unmarked notes in `notes.md` files, dispatches background research via the Anthropic API, marks each as ✅ (research done) or ⏭️ (skipped).
+- **Inbox-processor hook** - extracts knowledge from documents dropped in `docs/inbox/` to a knowledge-base drafts area.
+- **Time-injection hook** - adds the current local time to Claude's context every prompt (so timestamps in notes are accurate).
+- **Four baseline rules** - documentation standard, respect-denies behavior, subagent usage guide, notes convention.
+- **Four bundled skills** - `setup` (project scaffolding), `skill-creator`, `prd-creator`, `dr-prompt`.
+- **Helper script** - `list-env-keys.sh` lets Claude see *names* of your credential env vars without ever touching values.
 
 ### Workspace (`~/Documents/`)
-- `_CONTEXT/` — your personal profile and best-practices index, read by Claude across all projects.
-- `_CLIENTS/` — scaffold per client engagement. Auto-processing for inbox documents into a knowledge base.
-- `_BUSINESS/` — your own business work (offers, education content, internal projects).
-- `_APPS/` — small tools and apps you build, with one example (`transcribe`) included.
+- `_CONTEXT/` - your personal profile and best-practices index, read by Claude across all projects.
+- `_CLIENTS/` - scaffold per client engagement. Auto-processing for inbox documents into a knowledge base.
+- `_BUSINESS/` - your own business work (offers, education content, internal projects).
+- `_APPS/` - small tools and apps you build, with one example (`transcribe`) included.
 
 ### File convention
 Every project root has both `AGENTS.md` (canonical, cross-tool standard) and `CLAUDE.md` (symlink). One source of truth, readable by Claude Code, Cursor, Codex, Gemini CLI, Aider, and any other AGENTS.md-aware tool.
 
 ## Pro úplné začátečníky (česky)
 
-Pokud je tvoje zkušenost s AI claude.ai a nic víc — začni krátkým [**`UZIVATELSKY-MANUAL.md`**](UZIVATELSKY-MANUAL.md). Přečteš za půl minuty, dozvíš se, co Pack dělá a proč.
+Pokud je tvoje zkušenost s AI claude.ai a nic víc - začni krátkým [**`UZIVATELSKY-MANUAL.md`**](UZIVATELSKY-MANUAL.md). Přečteš za půl minuty, dozvíš se, co Pack dělá a proč.
 
 ## Install
 
@@ -41,7 +41,7 @@ claude
 
 Claude reads `INSTRUCTIONS.md` in the current directory, runs a pre-flight check, and asks for your approval at every major step (backup of existing `~/.claude/`, kernel install, workspace placement, personalization).
 
-If you already have a `~/.claude/` setup, the install respects it — backup is automatic, nothing is overwritten without your confirmation.
+If you already have a `~/.claude/` setup, the install respects it - backup is automatic, nothing is overwritten without your confirmation.
 
 ## What this is not
 
