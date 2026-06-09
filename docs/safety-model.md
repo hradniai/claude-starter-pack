@@ -21,7 +21,7 @@ What the starter pack protects against, what it doesn't, and where you'd reach f
 - `wget URL -o file; sh file` - caught
 - `bash -c "rm -rf ..."` - caught
 - `eval "curl ..."` - caught
-- Reading a protected env file via any reader, `source`, redirection, `python -c`, or docker bind-mount - caught (`.env.local` is the deliberate exception; see below)
+- Reading a protected env file's values - `cat`/`grep`/`source`/redirection/`python -c ...read()` - caught (`.env.local` is the deliberate exception; see below)
 - `cat ~/.ssh/id_rsa`, `~/.aws/credentials` - caught
 - `dd if=/dev/disk1 ...`, `mkfs.ext4 /dev/sda` - caught
 - Fork bombs - caught
@@ -40,10 +40,10 @@ What the starter pack protects against, what it doesn't, and where you'd reach f
 - `~/.claude/settings*` - denied (so Claude can't silently change its own config)
 
 ### Environment files: the `.env.local` exception
-Claude must never load secret VALUES into context, so every `.env` / `.env.*` read is blocked - by deny rules and by `bash-safety-extended.py`, which intercepts every read vector (`cat`/`cut`/`source`/redirection/`python -c`/docker bind-mount) and the Read tool alike. The single deliberate exception is **`.env.local`**: the one file whose values Claude may read - the conscious channel for handing Claude an API key or token, created in a project on purpose only when Claude genuinely needs a credential. Non-secret templates are also readable. To learn the key NAMES of any other env file without exposing values, Claude runs `scripts/list-env-keys.sh --from <path>`.
+Claude must never load secret VALUES into context, so commands that read a `.env` / `.env.*` file's contents into view are blocked - by deny rules and by `bash-safety-extended.py`, which intercepts the read/print vectors (`cat`/`head`/`grep`/`cut`/`source`/redirection/`python -c ...read()`) and the Read tool. Passing the file as config (`--env-file`, runners), copying from a template, or merely mentioning it does not expose values and stays allowed. The single deliberate exception for *reading values* is **`.env.local`**: the one file whose values Claude may read - the conscious channel for handing Claude an API key or token, created in a project on purpose only when Claude genuinely needs a credential. Non-secret templates are also readable. To learn the key NAMES of any other env file without exposing values, Claude runs `scripts/list-env-keys.sh --from <path>`.
 
 Two conscious trade-offs come with this breadth:
-- **Over-blocking.** The hook blocks *any* reference to a protected env file, so a command that merely mentions one in text (a commit message, an `echo`) is blocked too. Reword, or use the names-only helper. Intentional: over-block beats leak.
+- **Scope: values, not mentions.** Only commands that read the values into view are blocked (`cat`/`source`/redirection/`python -c ...read()`). Passing the file as config (`--env-file`), copying a template, or naming it in a commit message all pass - deploys and setup are not blocked. Hand Claude a real secret via `.env.local`.
 - **`.env.local` is readable in any repo.** The exception is by filename, not by trust - a third-party repo you open could ship its own `.env.local`. The convention assumes `.env.local` is *your* deliberate channel; treat an unexpected one in an unfamiliar repo with suspicion.
 
 ### Bypass mode lock
