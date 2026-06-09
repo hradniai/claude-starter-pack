@@ -1,5 +1,5 @@
 {
-  "_comment": "Claude Code Starter Pack — restrictive baseline. Edit at your own risk; the deny rules and disableBypassPermissionsMode are the safety net. Add allow rules as you learn what you trust.",
+  "_comment": "Claude Code Starter Pack - restrictive baseline. Edit at your own risk; the deny rules and disableBypassPermissionsMode are the safety net. Add allow rules as you learn what you trust.",
   "permissions": {
     "allow": [
       "Read",
@@ -135,9 +135,7 @@
       "Read(~/.config/google-chrome/**)",
       "Read(~/.config/chromium/**)",
       "Read(./.env)",
-      "Read(./.env.*)",
       "Read(**/.env)",
-      "Read(**/.env.*)",
       "Edit(./.env)",
       "Edit(./.env.*)",
       "Edit(**/.env)",
@@ -185,6 +183,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/context-bloat-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bash-safety-extended.py"
           }
         ]
       }
@@ -225,5 +227,7 @@
     "DISABLE_TELEMETRY": "1",
     "DISABLE_ERROR_REPORTING": "1"
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "_comment_cleanup": "cleanupPeriodDays controls how long Claude Code keeps local conversation transcripts before deleting them. 3650 = 10 years of retention. Never set this to 0: a known bug makes 0 disable transcript persistence entirely instead of disabling cleanup.",
+  "cleanupPeriodDays": 3650
 }
