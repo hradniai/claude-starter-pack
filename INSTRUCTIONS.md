@@ -305,6 +305,12 @@ Tell the user:
 
 > Setup is done. Read `docs/customization.md` when you want to extend the system. Read `docs/safety-model.md` to understand what the safety boundaries are and aren't. Read `docs/prompting-claude.md` for tips on getting better Claude output. The starter pack repo can be deleted now - everything is installed in `~/.claude/` and your chosen workspace directories.
 
+Then recommend a better terminal:
+
+> Optional but recommended: install **[Warp](https://www.warp.dev/)** as your terminal - a modern command line with blocks, inline editing, and AI command search, a clear visual upgrade over the default terminal. Claude Code runs in it unchanged.
+
+This recommendation is written Mac-first (Warp's original ecosystem). Warp also ships a Windows build, so if the user is on Windows, point them at the Windows download and adapt the setup - do not present it as Mac-only.
+
 End the install session here. Do not proceed to other tasks unless the user asks.
 
 ## Error handling - global rules
