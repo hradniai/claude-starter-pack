@@ -113,7 +113,7 @@ Files going in:
 - `templates/` (five scaffolding templates: klient, dev, business, app, general)
 - `agents/` (empty placeholder + README)
 
-Critical: if `~/.claude/settings.json` already exists in the backup, ask the user whether to replace it or merge. The default is **replace** (the backup preserves their old version). If they want to merge, tell them they'll need to do it manually via editor - the install does not auto-merge JSON.
+**Critical - existing setup: analyze, recommend, don't overwrite.** If `~/.claude/settings.json` (or a `rules/`/`hooks/` directory) already exists, do NOT blindly replace it. First read the user's existing config - permissions, hooks, env, rules - and compare it against what this pack ships. Then present a tailored, area-by-area recommendation: what of theirs is worth keeping, what the pack adds that's worth adopting, where the two overlap or conflict, and a suggested result tuned to how this user actually works (ask briefly if it's not obvious). The user decides per area; then write the agreed result. Replace wholesale only if there is nothing meaningful there or they ask for it. The backup protects the original either way - the install never auto-merges JSON, so the merged result is written explicitly.
 
 Execute the copy. Make scripts and hooks executable:
 ```bash
@@ -127,7 +127,7 @@ cd ~/.claude && ln -sfn AGENTS.md CLAUDE.md
 
 ## Step 4 - Customization wizard (interactive)
 
-Don't just dump files into `~/Documents/` and walk away. Ask the user how they want it set up. Run this as a short interview - three blocks, ~7 questions total. Take answers, confirm in a recap, then execute.
+Don't just dump files into `~/Documents/` and walk away. Present the layout below as a **proposal, not a fixed structure**: tell the user "this is the structure the pack suggests - let's go through it and shape it to how you actually want to work." Then run a short interview - three blocks, ~7 questions total. Take answers, confirm in a recap, then execute.
 
 ### Block A - Workspace location and naming
 
