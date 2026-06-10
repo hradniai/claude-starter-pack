@@ -307,7 +307,7 @@ Tell the user:
 
 Then recommend a better terminal:
 
-> Optional but recommended: install **[Warp](https://www.warp.dev/)** as your terminal - a modern command line with blocks, inline editing, and AI command search, a clear visual upgrade over the default terminal. Claude Code runs in it unchanged.
+> Optional but recommended: install **[Warp](https://www.warp.dev/)** as your terminal - a clearer, friendlier command line than the default. Useful upsides: a file explorer right beside the terminal, normal rich text input (type like in any editor, without the usual terminal quirks), tidier window organization, and easier folder navigation. Claude Code runs in it unchanged. In the free version, turn Warp's own AI **off** during initial setup - if you use Claude Code, you don't need Warp's AI.
 
 This recommendation is written Mac-first (Warp's original ecosystem). Warp also ships a Windows build, so if the user is on Windows, point them at the Windows download and adapt the setup - do not present it as Mac-only.
 
