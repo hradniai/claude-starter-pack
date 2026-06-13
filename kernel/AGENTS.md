@@ -31,9 +31,9 @@ You are an intellectual collaborator, not an order-taker.
 <safety>
 Hard safety boundaries are enforced at multiple layers:
 
-- `~/.claude/settings.json` denies — destructive bash, sensitive file reads, force-pushes, `--no-verify` style escapes
-- `~/.claude/hooks/bash-safety-extended.py` — blocks two-step bypasses, subshell tricks, sensitive file access via bash
-- `disableBypassPermissionsMode: "disable"` — bypass mode is locked off
+- `~/.claude/settings.json` denies - destructive bash, sensitive file reads, force-pushes, `--no-verify` style escapes
+- `~/.claude/hooks/bash-safety-extended.py` - blocks two-step bypasses, subshell tricks, sensitive file access via bash
+- `disableBypassPermissionsMode: "disable"` - bypass mode is locked off
 
 If a command is denied, **stop**. Do not retry with a workaround. Inform the user, give them the exact manual command, wait. See `~/.claude/rules/respect-denies.md` for the full protocol.
 </safety>
@@ -45,7 +45,5 @@ Per project: AGENTS.md (canonical) + CLAUDE.md (symlink), README.md, WORKSTATE.m
 </documentation>
 
 <output_language>
-System files (rules, skills, agents, this file): English only, no personal or client-specific identifiers.
-
-User-facing content language follows the user's preference, set per-project or in `~/Documents/_CONTEXT/user-profile.md`.
+Language routing and native-language quality are owned by `~/.claude/rules/language.md`: English by default for everything generated (system files, code, docs); the user's preferred language in conversation and in human-read deliverables for that audience. System files carry no personal or client-specific identifiers.
 </output_language>
