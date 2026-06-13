@@ -18,12 +18,12 @@ Autocompact will destroy context. Documentation is the only defense.
 ### Files
 - **AGENTS.md** - per workspace root (canonical). Purpose, tech stack, architecture, constraints. Cross-tool standard (Cursor, Codex, Gemini CLI, Aider, Claude Code via CLAUDE.md symlink).
 - **CLAUDE.md** - symlink to AGENTS.md. Claude Code reads this natively; same content as AGENTS.md.
-- **WORKSTATE.md** - per active subproject. Live working state that survives autocompact. Format: Current task, Changes made, Pending/Next steps, Decisions made. Always include "Last updated: YYYY-MM-DD HH:MM".
+- **WORKSTATE.md** - per active subproject. Append-only working journal that survives autocompact. A small live header on top (current task, pending, next steps); below it a dated log, newest entries first. Always timestamp entries (YYYY-MM-DD HH:MM).
 - **README.md** - per subproject. Changelog with dates, current state, features, known issues, setup.
 
 ### Rules
 - On session start, read WORKSTATE.md first if it exists
-- Delete WORKSTATE.md when task is fully completed and reflected in README.md
+- WORKSTATE.md is append-only - never delete it. It is the project's journal and survives autocompact precisely because it is not reset. Add new log entries newest-first; when a task completes, record that in the log and in README.md rather than wiping the file
 - Version all changes with dates
 - Outdated docs are worse than no docs
 
