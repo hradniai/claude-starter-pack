@@ -225,9 +225,13 @@
   },
   "env": {
     "DISABLE_TELEMETRY": "1",
-    "DISABLE_ERROR_REPORTING": "1"
+    "DISABLE_ERROR_REPORTING": "1",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
   "alwaysThinkingEnabled": true,
+  "_comment_teams": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS in env above unlocks the 'teammates' multi-agent feature (off by default in Claude Code). It only makes the capability available; summoning a team is always a deliberate, manual action, so it costs nothing on its own.",
+  "_comment_trust": "The 'Do you trust the files in this folder?' dialog CANNOT be turned off here - no settings.json key or safe env var exists for it, and bypass mode (which would skip it) is deliberately locked off. To pre-trust your working directories without weakening the safety baseline, run scripts/trust-workspace.sh (it merges per-directory trust flags into ~/.claude.json). See INSTRUCTIONS.md.",
+  "feedbackSurveyRate": 0,
   "_comment_cleanup": "cleanupPeriodDays controls how long Claude Code keeps local conversation transcripts before deleting them. 3650 = 10 years of retention. Never set this to 0: a known bug makes 0 disable transcript persistence entirely instead of disabling cleanup.",
   "cleanupPeriodDays": 3650
 }

@@ -267,6 +267,21 @@ Their `ANTHROPIC_API_KEY` (and any other credentials they added) should appear b
 
 `~/.claude/.env` above is the GLOBAL credential store for hooks; Claude never reads its values. For handing Claude a secret **inside a specific project**, the convention is a per-project `.env.local` - the single file whose values Claude is allowed to read. The deny rules plus the `bash-safety-extended.py` hook block reading every other `.env` / `.env.*` (via `cat`, `source`, redirection, `python -c`, docker bind-mount, or the Read tool); `.env.local` is the deliberate, conscious exception, created on purpose only when Claude genuinely needs a key or token. It stays gitignored via the `.env.*` pattern, so it is never committed. To see only the key NAMES of any other env file, Claude runs `~/.claude/scripts/list-env-keys.sh --from <path>`. Scope note: only commands that read the *values* into view are blocked (`cat`, `source`, redirection, `python -c ...read()`); passing the file as config (`--env-file`), copying a template, or mentioning it in text all pass, so deploys and setup are not blocked.
 
+## Step 5.5 - Pre-trust the workspace (optional, stops the folder-trust nag)
+
+On first launch in any directory, Claude Code shows **"Do you trust the files in this folder?"** and the user must accept. This is a deliberate safety gate; there is no `settings.json` key or safe env var to disable it (bypass mode would skip it, but it is locked off here on purpose). The supported way to stop the repeated prompt for directories the user already trusts is to pre-write the per-directory trust flag into `~/.claude.json`. The kernel ships `~/.claude/scripts/trust-workspace.sh` for exactly this.
+
+Offer to pre-trust the workspace base path from Step 4 and each directory created in the workspace copy:
+
+```bash
+~/.claude/scripts/trust-workspace.sh <base-path>/<chosen-dir-1> <base-path>/<chosen-dir-2>
+```
+
+- It backs up `~/.claude.json`, merges (never overwrites), and validates JSON before saving.
+- It weakens nothing else: normal permission prompting and `disableBypassPermissionsMode` stay fully in force. It only persists "yes, I trust this folder" up front, exactly as clicking Yes would.
+- Brand-new directories opened later still prompt once - correct for a safety baseline. Re-run the script for those, or just accept once.
+- The install session is itself a Claude Code session, so if the prompt persists after the Step 6 restart, have the user run the command once more from a plain terminal (a running session can overwrite `~/.claude.json` on exit).
+
 ## Step 6 - Verification
 
 Tell the user to **restart their Claude Code session** so the new `settings.json` takes effect. After restart, they can verify:
