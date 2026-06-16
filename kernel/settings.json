@@ -49,6 +49,7 @@
       "Bash(uniq *)",
       "Bash(diff *)",
       "Bash(~/.claude/scripts/list-env-keys.sh*)",
+      "Bash(~/.claude/scripts/git-autosave.sh*)",
       "Bash(curl*)",
       "Bash(wget*)",
       "WebFetch",

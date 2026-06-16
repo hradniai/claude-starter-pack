@@ -1,3 +1,16 @@
+---
+type: product_design
+title: "PRD Examples and Templates"
+status: active
+summary: "This file contains example PRD sections to illustrate best practices and expected output quality."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: kernel/skills/prd-creator/references/prd-examples.md
+tags: [prd]
+---
+
 # PRD Examples and Templates
 
 This file contains example PRD sections to illustrate best practices and expected output quality.

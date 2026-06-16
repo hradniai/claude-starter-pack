@@ -1,3 +1,16 @@
+---
+type: notes
+title: "Output Patterns"
+status: active
+summary: "Use these patterns when skills need to produce consistent, high-quality output."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: kernel/skills/skill-creator/references/output-patterns.md
+tags: [note]
+---
+
 # Output Patterns
 
 Use these patterns when skills need to produce consistent, high-quality output.

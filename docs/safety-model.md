@@ -1,3 +1,16 @@
+---
+type: notes
+title: "Safety Model"
+status: active
+summary: "What the starter pack protects against, what it doesn't, and where you'd reach for stronger guarantees."
+created: 2026-06-13
+updated: 2026-06-13
+created_by: Šimon Hradní
+client: ~
+path: docs/safety-model.md
+tags: [note]
+---
+
 # Safety Model
 
 What the starter pack protects against, what it doesn't, and where you'd reach for stronger guarantees.

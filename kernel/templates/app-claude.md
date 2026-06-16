@@ -1,3 +1,16 @@
+---
+type: notes
+title: "app-claude"
+status: active
+summary: ""
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: kernel/templates/app-claude.md
+tags: [note]
+---
+
 <purpose>
 {{APP_NAME}}: {{ONE_LINE_DESCRIPTION}}
 Purpose: {{WHO_IS_IT_FOR_AND_WHY}}

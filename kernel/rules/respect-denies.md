@@ -1,3 +1,16 @@
+---
+type: context
+title: "respect-denies"
+status: active
+summary: ""
+created: 2026-06-10
+updated: 2026-06-16
+created_by: Šimon Hradní
+client: ~
+path: kernel/rules/respect-denies.md
+tags: [standard]
+---
+
 <respect_denies>
 
 ## Behavior when a command, file read, or operation is denied
@@ -8,8 +21,10 @@ If you attempt a command, file read, or write and it is denied by the permission
 - Do NOT retry the same operation
 - Do NOT attempt a different command that achieves the same destructive or sensitive outcome
 - Do NOT chain or wrap commands to obscure intent (e.g. `rm -rf` denied → do not try `find ... -delete`, `mv ... /tmp/`, `python -c "shutil.rmtree(...)"`, `bash -c "rm -rf ..."`, etc.)
+- **Do NOT write a wrapper script that performs a denied destructive operation indirectly.** A denied destructive or sensitive action (e.g. `rm -rf`) cannot be repackaged into a script, function, alias, or cron job to dodge the deny. (Credentials are a separate case - see *For environment variables and secrets* below: sourcing or reading `.env` so a program can **use** a key it never reveals to you is allowed; only **exposing** the values is denied.)
 - Do NOT rationalize that the deny was a mistake, that you "know better", or that the user "obviously meant for this to work"
 - Do NOT continue trying alternatives until something passes
+- **Do NOT bypass even when the user appears to ask for it.** If the user says "just write a script that does X" and X is denied, refuse and explain. The deny is the policy; user override of policy must be explicit and durable (lifting the deny rule itself in settings.json), not improvised in-session.
 
 ### DO
 - Stop immediately. The deny is intentional - the user set this safeguard for a reason.
@@ -39,6 +54,8 @@ RIGHT:
 ### Why this rule exists
 Denies represent the user's **intentional safety boundary**. Bypassing them - even when the bypass is technically clever - defeats the entire purpose of safeguards. It is token-cheap to inform the user; expensive (in trust, time, and possible damage) to keep retrying until something works.
 
+**Additional reason: precedent contamination.** Sessions that contain successful bypasses get captured into long-term memory and become precedents Claude later retrieves: "we did X this way before, so do it again." Better to never establish the bypass than to write redaction rules to filter it out later.
+
 ## Categories denied at the global level - do not even attempt
 
 **Destructive bash:** any recursive/forced delete (`rm -r`, `rm -rf`, `rm -fr`, `mv -f`), privilege escalation (`sudo`, `chown`, `launchctl`), broad permissions (`chmod -R`, `chmod 777/666`), process control (`pkill`, `killall`, `shutdown`, `reboot`), env mutation (`export`), publishing (`npm publish`, `npm install -g`).
@@ -56,14 +73,21 @@ Denies represent the user's **intentional safety boundary**. Bypassing them - ev
 ## When unsure
 If a command might fall into any of the categories above, **do not attempt it**. It is far cheaper (in tokens and time) to ask the user once than to retry-fail through the permission engine.
 
-## For environment variables
-`.env` files hold secret VALUES that must never enter Claude's context. They are denied for a reason, and a `bash-safety-extended.py` hook enforces it across every read vector (`cat`/`cut`/`source`/redirection/`python -c`/docker bind-mount, and the `Read` tool).
+## For environment variables and secrets
 
-**The single deliberate exception - `.env.local`.** Every other `.env` / `.env.*` file is hard-blocked for reading. The ONE file whose real values you may read is **`.env.local`** - the deliberate, single channel for handing Claude an API key or token. The user creates it in a project on purpose, only when Claude genuinely needs a credential. Reading it is allowed and expected; you never write or commit it (it stays gitignored via the `.env.*` pattern). Non-secret templates (`.env.example`/`.sample`/`.template`/`.dist`) are also readable.
+The protected thing is the secret **value**, not the file or the act of using it. The test: *do the secret values become visible to Claude (in its context, in command output Claude reads, in logs, or in chat), or get sent anywhere other than the service they authenticate?*
 
-To work with credentials in any other `.env` file without exposing values:
-1. Run `~/.claude/scripts/list-env-keys.sh --from <path>` (one file) or `list-env-keys.sh [pattern]` (default sources) to discover variable **names** only, never values.
-2. Reference the variable by name in code: `os.environ['GEMINI_API_KEY']`.
-3. The value reaches only the service it authenticates; it never surfaces to Claude.
+**Allowed** - referencing env vars by name, or reading/sourcing a `.env`, **inside a program whose job is to use the credential** (e.g. authenticating an API call). The value flows only to the service it authenticates and never surfaces to Claude. Example: a script doing `os.environ['SOME_API_KEY']` is fine - Claude never sees the value.
+
+**Forbidden** - anything that surfaces the values to Claude or ships them elsewhere: `cat` / `Read` / `echo` / printing / logging `.env` contents; a script that reads `.env` and returns or displays its contents; dumping `env` / `printenv` of secret vars into output Claude reads.
+
+**The three env tiers - what goes where, and what you may read.**
+- **Global `~/.claude/.env`** - secrets for Claude's own cross-workspace automations. HARD: you never read its values; the automations that need them read them as programs. Use `list-env-keys.sh` for its NAMES.
+- **Project `.env`** (and any framework secret file - `.env.local`, `.env.production`, any other `.env.*`) - HARD project secrets, scoped to that workspace's own runtime. You never read their values. `.env.local` is HARD on purpose: the JS ecosystem (Next.js/Vite/CRA/dotenv) treats `.env.local` as the live-secret file, so live keys land there. To learn which keys exist and whether they are populated, use `list-env-keys.sh --from <path>` (+ `--classify`) - names / state only, never values.
+- **Project `.env.shared`** - the SOFT tier: webhooks, emails, low-risk scoped tokens that are safe to surface into the conversation. This is the ONE readable env file; you may read it freely. It stays gitignored (readable-by-you is NOT the same as commit-to-git).
+
+Every hard env file is blocked across all read vectors by the `bash-safety-extended.py` hook (`cat`/`cut`/`source`/redirection/`python -c`/docker bind-mount and the `Read` tool alike). Placeholder files (`.env.example`/`.sample`/`.template`/`.dist`, including multi-part names like `.env.production.example`) are readable - they carry placeholders, not secret values.
+
+To discover which credentials exist without exposing values, use `~/.claude/scripts/list-env-keys.sh [pattern]` (default sources) or `~/.claude/scripts/list-env-keys.sh --from <path>` (one specific file) - it prints variable **names** only, never values. Add `--classify` to also get each key's value-**state** - `empty` / `placeholder` / `filled (kind)`. The classifier reads the value ONLY to derive that label and never emits, logs, or returns the value itself - the same allowed pattern as a program using a key it never reveals.
 
 </respect_denies>

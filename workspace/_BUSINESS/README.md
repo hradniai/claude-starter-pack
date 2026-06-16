@@ -1,3 +1,16 @@
+---
+type: core
+title: "Your Business"
+status: active
+summary: "Created: YYYY-MM-DD"
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_BUSINESS/README.md
+tags: [readme]
+---
+
 # Your Business
 
 Created: YYYY-MM-DD

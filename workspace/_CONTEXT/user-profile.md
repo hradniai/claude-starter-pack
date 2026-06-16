@@ -1,3 +1,16 @@
+---
+type: notes
+title: "User Profile"
+status: active
+summary: "Fill in your details. Claude reads this across all sessions to tailor work to you specifically. Keep it under 200 lines and update when material things change."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_CONTEXT/user-profile.md
+tags: [note]
+---
+
 # User Profile
 
 > Fill in your details. Claude reads this across all sessions to tailor work to you specifically. Keep it under 200 lines and update when material things change.

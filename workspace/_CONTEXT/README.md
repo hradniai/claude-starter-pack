@@ -1,3 +1,16 @@
+---
+type: core
+title: "_CONTEXT"
+status: active
+summary: "This directory holds the user's persistent context - information about you, your work, and your preferences that Claude reads across all projects."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_CONTEXT/README.md
+tags: [readme]
+---
+
 # _CONTEXT
 
 This directory holds the user's persistent context — information about you, your work, and your preferences that Claude reads across all projects.

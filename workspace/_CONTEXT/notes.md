@@ -1,3 +1,16 @@
+---
+type: notes
+title: "Notes"
+status: active
+summary: "Brain dump for ideas, impulses, and things to explore."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_CONTEXT/notes.md
+tags: [note]
+---
+
 # Notes
 
 Brain dump for ideas, impulses, and things to explore. NOT a task list.

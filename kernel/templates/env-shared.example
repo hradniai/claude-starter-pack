@@ -1,0 +1,15 @@
+# ============================================================================
+# .env.shared - SOFT tier. Readable by Claude, safe to surface in conversation.
+# STILL gitignored (readable != committed). Values EMPTY on purpose.
+#
+# Put here ONLY genuinely low-risk values:
+#   - contact / notify emails
+#   - your own personal notification webhook (e.g. a private Slack #notify)
+#
+# Do NOT put here: production / capability webhooks that trigger real flows, or
+# anything ending in _SECRET / _KEY / _TOKEN / _PASSWORD. Those are HARD -> .env.
+# ============================================================================
+
+# CONTACT_EMAIL=
+# NOTIFY_EMAIL=
+# SLACK_NOTIFY_WEBHOOK_URL=   # a PERSONAL notify hook only, never a production trigger

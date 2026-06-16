@@ -1,0 +1,52 @@
+# =============================================================================
+# UNIVERSAL .claudeignore  -  deliberately PERMISSIVE
+# Scope: keeps heavy/derived dirs out of Claude's AUTO-loaded context (token
+# hygiene). This is NOT a security boundary: .claudeignore is advisory only -
+# Glob, Grep, explicit Read, Bash (cat) and subagents all bypass it. Hard
+# blocking of secrets lives in ~/.claude/settings.json (permissions.deny) and
+# the bash-safety-extended.py PreToolUse hook. Keep this file light - do not
+# exclude source, docs, or notes.
+# =============================================================================
+
+# --- Dependencies / build output (heavy, fully derived) ---
+node_modules/
+.pnpm/
+.pnpm-store/
+vendor/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.output/
+
+# --- Python envs / caches ---
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- JVM / other build output ---
+.gradle/
+target/
+.dart_tool/
+
+# --- OS / logs / temp / coverage ---
+.DS_Store
+*.log
+logs/
+tmp/
+.tmp/
+coverage/
+htmlcov/
+.nyc_output/
+
+# --- Secrets backstop (ADVISORY ONLY - real block is settings.json + the hook) ---
+.env
+.env.*
+*.pem
+*.key
+secrets/

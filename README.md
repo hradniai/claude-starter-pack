@@ -1,3 +1,16 @@
+---
+type: core
+title: "Claude Code Starter Pack"
+status: active
+summary: "A curated baseline configuration for Claude Code: hard safety defaults, opinionated workspace scaffolding, and a small set of bundled skills."
+created: 2026-06-10
+updated: 2026-06-10
+created_by: Šimon Hradní
+client: ~
+path: README.md
+tags: [readme]
+---
+
 # Claude Code Starter Pack
 
 A curated baseline configuration for Claude Code: hard safety defaults, opinionated workspace scaffolding, and a small set of bundled skills. Designed to be installed once and lived in.

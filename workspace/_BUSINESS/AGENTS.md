@@ -1,3 +1,16 @@
+---
+type: core
+title: "AGENTS"
+status: active
+summary: ""
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_BUSINESS/AGENTS.md
+tags: [agents-manifest]
+---
+
 <purpose>
 Your own business work — offers you produce, content you create, internal projects, education materials, your own tooling.
 

@@ -1,3 +1,16 @@
+---
+type: core
+title: "Examples"
+status: active
+summary: "Drop input audio/video files here for testing."
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_APPS/_example-app-transcribe/examples/README.md
+tags: [readme]
+---
+
 # Examples
 
 Drop input audio/video files here for testing.

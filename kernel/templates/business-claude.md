@@ -1,3 +1,16 @@
+---
+type: notes
+title: "business-claude"
+status: active
+summary: ""
+created: 2026-05-07
+updated: 2026-05-07
+created_by: Šimon Hradní
+client: ~
+path: kernel/templates/business-claude.md
+tags: [note]
+---
+
 <purpose>
 {{BUSINESS_CONTEXT}}: your own business work — offers you produce, content you create, internal projects, education materials, your own tooling.
 

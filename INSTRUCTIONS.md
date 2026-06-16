@@ -1,3 +1,16 @@
+---
+type: notes
+title: "Instructions for Claude - Starter Pack Installation"
+status: active
+summary: "You are reading this because the user just cloned the Claude Code Starter Pack and ran `claude` in the repo root."
+created: 2026-06-16
+updated: 2026-06-16
+created_by: Šimon Hradní
+client: ~
+path: INSTRUCTIONS.md
+tags: [note]
+---
+
 # Instructions for Claude - Starter Pack Installation
 
 You are reading this because the user just cloned the Claude Code Starter Pack and ran `claude` in the repo root. Your job is to walk them through installation safely, with explicit confirmation at each major step.

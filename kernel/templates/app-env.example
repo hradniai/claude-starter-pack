@@ -1,0 +1,24 @@
+# ============================================================================
+# APP workspace - .env.example  (own tools / CLIs / scripts; no frontend, no login)
+# Real values go in .env (HARD). Values here are EMPTY on purpose; fill to the
+# requirement in each `#` note. Account / admin tokens (Supabase access,
+# OpenAI / Anthropic admin, and any account-level service tokens) live GLOBAL
+# in ~/.claude/.env - NOT here.
+# ============================================================================
+
+# --- Runtime ---
+NODE_ENV=                 # development | production
+
+# --- LLM providers: project-runtime keys ---------------------------------
+ANTHROPIC_API_KEY=        # this tool's runtime key
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+
+# --- Optional, per what the tool integrates (fill / uncomment) ------------
+# DB_HOST=                # if the tool has its own storage
+# DB_PORT=                # 5432 for Postgres
+# DB_NAME=                # descriptive, e.g. <project>_db
+# DB_USER=                # descriptive, e.g. <project>_app
+# DB_PASSWORD=            # strong random, >=24 chars (openssl rand -base64 32)
+# DATABASE_URL=           # postgres://<user>:<password>@<host>:<port>/<db>
+# GCP_SA_READONLY=        # path to a project-scoped SA json (account-level SA stays global)

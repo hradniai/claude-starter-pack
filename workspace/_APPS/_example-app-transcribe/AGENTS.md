@@ -1,3 +1,16 @@
+---
+type: core
+title: "AGENTS"
+status: active
+summary: ""
+created: 2026-05-01
+updated: 2026-05-01
+created_by: Šimon Hradní
+client: ~
+path: workspace/_APPS/_example-app-transcribe/AGENTS.md
+tags: [agents-manifest]
+---
+
 <purpose>
 **Transcribe** — convert local audio/video files into markdown transcripts via an LLM API.
 

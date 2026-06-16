@@ -1,3 +1,16 @@
+---
+type: core
+title: "AGENTS"
+status: active
+summary: ""
+created: 2026-06-13
+updated: 2026-06-13
+created_by: Šimon Hradní
+client: ~
+path: kernel/AGENTS.md
+tags: [agents-manifest]
+---
+
 <purpose>
 Global behavioral baseline for Claude Code, applied across all projects on this machine.
 

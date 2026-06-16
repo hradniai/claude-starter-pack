@@ -15,8 +15,12 @@ Env read policy (narrow, value-focused):
   (cat/head/grep/cut/source/redirection/`python -c ...read()` ...) targeting a
   protected env file - NOT commands that merely reference it as config
   (`--env-file .env`, `cp .env.example .env`, a commit message that mentions it).
-- `.env.local` (and templates .example/.sample/.template/.dist) are readable.
-- For any other env file, `list-env-keys.sh --from <path>` lists key NAMES only.
+- READABLE exception is `.env.shared` (the soft tier - webhooks, emails, low-risk
+  scoped tokens, safe to surface) plus any placeholder file ending in
+  .example/.sample/.template/.dist. ALL other env files - `.env`, `.env.local`,
+  `.env.production`, ... - are HARD: their VALUES never enter context.
+- For any hard env file, `list-env-keys.sh --from <path>` lists key NAMES only
+  (add `--classify` for each key's state/kind, still never the value).
 
 Exit codes: 0 = allow, 2 = block with stderr message.
 """
@@ -30,8 +34,18 @@ ENV_TOKEN = re.compile(
     r"""(?:^|[\s'"=:(<>|&;,/])(\.env(?:\.[A-Za-z0-9_-]+)*)(?![\w./-])""",
     re.IGNORECASE,
 )
-ENV_READ_OK = {'.env.local', '.env.example', '.env.sample', '.env.template', '.env.dist'}
+# Soft, readable env file(s) - exact basename match.
+ENV_READ_OK_EXACT = {'.env.shared'}
+# Placeholder files (carry no secret values) - suffix match, so multi-part names
+# like `.env.production.example` or `.env.local.template` are also readable.
+ENV_READ_OK_SUFFIX = ('.example', '.sample', '.template', '.dist')
 HELPER = 'list-env-keys.sh'
+
+
+def _env_read_ok(base):
+    base = base.lower()
+    return base in ENV_READ_OK_EXACT or base.endswith(ENV_READ_OK_SUFFIX)
+
 
 # Vectors that put a file's CONTENTS into output Claude can read.
 ENV_READERS = re.compile(
@@ -55,7 +69,7 @@ def _reads_into_context(seg):
 def env_block_reason_bash(command):
     """Block only when a read/print vector targets a protected env file."""
     for seg in re.split(r'&&|\|\||[|;&\n]', command):
-        protected = [t for t in ENV_TOKEN.findall(seg) if t.lower() not in ENV_READ_OK]
+        protected = [t for t in ENV_TOKEN.findall(seg) if not _env_read_ok(t)]
         if not protected:
             continue
         if HELPER in seg:
@@ -64,8 +78,9 @@ def env_block_reason_bash(command):
             continue  # references the file as config / mention - values never enter context
         return (
             "reading the VALUES of a protected env file (%s) into context. Use "
-            "`%s --from <path>` for key NAMES only, or `.env.local` for a deliberate "
-            "handoff. Passing it as config (e.g. `--env-file`) is fine." % (protected[0], HELPER)
+            "`%s --from <path>` for key NAMES only (add --classify for state), or "
+            "`.env.shared` for soft values safe to surface. Passing it as config "
+            "(e.g. `--env-file`) is fine." % (protected[0], HELPER)
         )
     return None
 
@@ -127,15 +142,16 @@ def main():
     tool = data.get('tool_name')
     tool_input = data.get('tool_input', {}) or {}
 
-    # Read tool: block reading protected env files; allow .env.local + templates.
+    # Read tool: block reading protected env files; allow .env.shared + placeholders.
     if tool == 'Read':
         fp = tool_input.get('file_path', '') or ''
         base = os.path.basename(fp).lower()
         if base == '.env' or base.startswith('.env.'):
-            if base in ENV_READ_OK:
+            if _env_read_ok(base):
                 sys.exit(0)
             block("reading a protected env file via Read tool (%s) - use "
-                  "`%s --from %s` for key NAMES only, or read `.env.local`."
+                  "`%s --from %s` for key NAMES only (add --classify for state), "
+                  "or read `.env.shared`."
                   % (os.path.basename(fp), HELPER, fp))
         sys.exit(0)
 
