@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lists NAMES of credential/API env variables from multiple sources.
-# NEVER returns values — only names. Safe to share with Claude.
+# NEVER returns values - only names. Safe to share with Claude.
 #
 # Default sources scanned (names only, values never read):
 #   1. Process environment (vars exported in current shell)
@@ -31,22 +31,47 @@ DEFAULT_INCLUDE='API|KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|CLIENT_ID|CLIEN
 # Known non-credential env vars that match the include pattern but aren't actual credentials
 EXCLUDE='^PWD$|^OLDPWD$|^XPC_|^TMPDIR$|^TERM_PROGRAM|^DISPLAY$|^LSCOLORS$|^LS_COLORS$'
 
-# Parse --from flag (consumes 2 args if present) before pattern arg
+# Parse leading flags: --from <path> / -f <path> and --classify / -c, in any order,
+# before the optional pattern arg.
 TARGET_FILE=""
-if [ "${1:-}" = "--from" ] || [ "${1:-}" = "-f" ]; then
-    if [ -z "${2:-}" ]; then
-        echo "Error: --from requires a path argument" >&2
-        exit 1
-    fi
-    TARGET_FILE="$2"
-    shift 2
-    if [ ! -f "$TARGET_FILE" ]; then
-        echo "Error: file not found: $TARGET_FILE" >&2
-        exit 1
-    fi
-fi
+CLASSIFY=0
+while [ $# -gt 0 ]; do
+    case "${1:-}" in
+        --from|-f)
+            if [ -z "${2:-}" ]; then
+                echo "Error: --from requires a path argument" >&2
+                exit 1
+            fi
+            TARGET_FILE="$2"
+            shift 2
+            if [ ! -f "$TARGET_FILE" ]; then
+                echo "Error: file not found: $TARGET_FILE" >&2
+                exit 1
+            fi
+            ;;
+        --classify|-c)
+            CLASSIFY=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 PATTERN="${1:-$DEFAULT_INCLUDE}"
+
+# Classify mode: delegate to the Python classifier, which reports each key's
+# value-STATE (empty / placeholder / filled + kind) WITHOUT ever emitting the value.
+# Names-only mode (default, below) is unchanged.
+if [ "$CLASSIFY" = "1" ]; then
+    CLASSIFY_FILE="${TARGET_FILE:-./.env}"
+    if [ ! -f "$CLASSIFY_FILE" ]; then
+        echo "Error: file not found: $CLASSIFY_FILE" >&2
+        exit 1
+    fi
+    exec python3 "$(dirname "$0")/env-key-classify.py" "$CLASSIFY_FILE" "$PATTERN"
+fi
 
 # Extract variable names (LHS of =) from an env-style file; never reads values.
 extract_names_from_envfile() {

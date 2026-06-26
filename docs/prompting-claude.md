@@ -1,3 +1,18 @@
+---
+type: notes
+title: "Prompting Claude - Quick Reference"
+status: approved
+summary: "Claude Code uses Anthropic's Claude models (Opus / Sonnet / Haiku)."
+created: 2026-05-07 17:13
+updated: 2026-05-07 17:13
+owner: Šimon Hradní
+client: ~
+path: docs/prompting-claude.md
+tags: [note]
+version: "1.0.0"
+release: latest
+---
+
 # Prompting Claude — Quick Reference
 
 Claude Code uses Anthropic's Claude models (Opus / Sonnet / Haiku). They have specific preferences that differ from OpenAI / Gemini / open-weight models. This guide covers what matters for daily Claude Code work.

@@ -1,3 +1,18 @@
+---
+type: core
+title: "Rules"
+status: approved
+summary: "Files in this directory are auto-loaded into every Claude Code session as system context."
+created: 2026-06-13 20:48
+updated: 2026-06-13 20:48
+owner: Šimon Hradní
+client: ~
+path: kernel/rules/README.md
+tags: [readme]
+version: "1.0.0"
+release: latest
+---
+
 # Rules
 
 Files in this directory are auto-loaded into every Claude Code session as system context. They define how Claude behaves across all projects.
@@ -6,11 +21,12 @@ Files in this directory are auto-loaded into every Claude Code session as system
 
 | File | Purpose |
 |------|---------|
-| `documentation-standard.md` | XML+Markdown format conventions; AGENTS.md/CLAUDE.md/README/WORKSTATE rules |
-| `respect-denies.md` | Behavior when permission engine blocks a command - never bypass, inform user |
+| `documentation-standard.md` | XML+Markdown format conventions; AGENTS.md/CLAUDE.md/README/WORKSTATE rules; idea-file methodology; frontmatter pointer |
+| `respect-denies.md` | Behavior when permission engine blocks a command - never bypass, inform user; the three env tiers (global/hard/soft) |
 | `subagent-rules.md` | When to use subagents, which type to pick, inheritance limits, dispatch quality |
 | `notes-convention.md` | `notes.md` format and the `→ research` auto-trigger |
-| `language.md` | Which language to use (English by default; routing for chat and deliverables) and how to write non-English output natively. Czech is the worked example. |
+| `language.md` | Which language to use (English by default; routing for chat and deliverables) and how to write non-English output natively |
+| `frontmatter-standard.md` | On-demand reference: the unified YAML frontmatter standard (7 closed type buckets, lifecycle status, tag vocabulary, per-loader rules, OKF alignment). Not auto-loaded - skills read it on demand. |
 
 ## Adding your own rules
 
@@ -30,6 +46,7 @@ Delete the file. Rules are loose-coupled - removing one doesn't break the others
 - Removing `subagent-rules.md` may cause subagent dispatch failures (especially MCP-related)
 - Removing `notes-convention.md` will disable the `→ research` auto-trigger workflow
 - Removing `language.md` loses language routing (Claude may write system files in a non-English language) and lets non-English output drift toward translated-English style
+- Removing `frontmatter-standard.md` means skills/agents won't find the on-demand reference when authoring or migrating frontmatter (other rules are unaffected - it is not auto-loaded)
 
 ## Custom rules vs. project-level
 

@@ -1,0 +1,51 @@
+# ============================================================================
+# DEV workspace - .env.example  (web app: frontend + backend)
+# Real values go in .env (HARD - Claude never reads them). This file is a
+# readable SCHEMA only: every value is EMPTY on purpose. Fill real values
+# yourself, to the requirement in each `#` note (strong secrets, descriptive
+# identifiers). Admin / account keys live in ~/.claude/.env (global), NOT here.
+# ============================================================================
+
+# --- Runtime ---
+NODE_ENV=                 # development | production
+APP_URL=                  # public base URL, e.g. http://localhost:3000 (dev)
+
+# --- Database -------------------------------------------------------------
+# DB_NAME / DB_USER: descriptive, lowercase_snake, tied to the project
+#   (never generic "app" / "postgres" / "mydb"). DB_PASSWORD: strong random.
+DB_HOST=                  # localhost (dev) | db (docker) | host (prod)
+DB_PORT=                  # 5432 for Postgres
+DB_NAME=                  # descriptive, e.g. <project>_db
+DB_USER=                  # descriptive, e.g. <project>_app
+DB_PASSWORD=              # strong random, >=24 chars, mixed case+digits+symbols (openssl rand -base64 32)
+DATABASE_URL=             # postgres://<user>:<password>@<host>:<port>/<db>  (built from the parts above)
+
+# --- Auth: pick ONE pattern, leave the other empty ------------------------
+# (A) Lightweight JWT + USERS (no external IdP)
+JWT_SECRET=               # strong random, >=32 chars (openssl rand -base64 48)
+USERS=                    # user@email:password:role,...  (strong, unique password per user)
+# (B) Google OAuth (Better Auth / NextAuth)
+AUTH_SECRET=              # strong random, >=32 chars (openssl rand -base64 64)
+GOOGLE_CLIENT_ID=         # Google Cloud Console - THIS app's OAuth client
+GOOGLE_CLIENT_SECRET=     # paired secret (distinct from any global GCP keys)
+
+# --- Admin logins: ALWAYS qualify by WHAT they log into -------------------
+# One set per target; each password strong + unique (never reuse DB_PASSWORD).
+APP_ADMIN_EMAIL=          # the app's admin - usually an email (leave blank if login is via Google OAuth)
+APP_ADMIN_PASSWORD=       # strong random, unique
+DB_ADMIN_EMAIL=           # DB dashboard login (e.g. Supabase) - distinct from DB_USER above
+DB_ADMIN_PASSWORD=        # strong random, unique
+# 2nd database: DB2_ADMIN_EMAIL= / DB2_ADMIN_PASSWORD=
+
+# --- LLM providers: project-runtime keys (admin keys stay global) ---------
+ANTHROPIC_API_KEY=        # this project's runtime key
+OPENAI_API_KEY=           # this project's runtime key
+GEMINI_API_KEY=           # this project's runtime key (distinct from any global AI Studio key)
+
+# --- Local integrations (fill / uncomment per what the app uses) ----------
+# SUPABASE_URL=           # this project's Supabase (the account access token stays global)
+# SUPABASE_ANON_KEY=
+# MASTER_ENCRYPTION_KEY=  # strong random (openssl rand -hex 32), if the app encrypts at rest
+# N8N_WEBHOOK_<NAME>=     # production trigger URL https://...  (capability-bearing -> HARD, keep here)
+# WEBHOOK_CALLBACK_SECRET=# strong random; verifies inbound callbacks
+# <SERVICE>_ACCESS_TOKEN= # client integration token (e.g. a CRM like HubSpot) - name per service

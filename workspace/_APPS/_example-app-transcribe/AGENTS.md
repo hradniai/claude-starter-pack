@@ -1,3 +1,18 @@
+---
+type: core
+title: "AGENTS"
+status: approved
+summary: "Stub example app for transcribing local audio/video files to markdown using an LLM API, requiring user implementation."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
+client: ~
+path: workspace/_APPS/_example-app-transcribe/AGENTS.md
+tags: [agents-manifest]
+version: "1.0.0"
+release: latest
+---
+
 <purpose>
 **Transcribe** — convert local audio/video files into markdown transcripts via an LLM API.
 

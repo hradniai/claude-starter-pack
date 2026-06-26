@@ -1,3 +1,18 @@
+---
+type: core
+title: "_CLIENTS"
+status: approved
+summary: "One subdirectory per client engagement."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
+client: ~
+path: workspace/_CLIENTS/README.md
+tags: [readme]
+version: "1.0.0"
+release: latest
+---
+
 # _CLIENTS
 
 One subdirectory per client engagement.

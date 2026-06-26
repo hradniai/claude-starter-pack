@@ -1,6 +1,15 @@
 ---
 name: setup
 description: Initialize or restructure a project workspace with AGENTS.md (canonical) and CLAUDE.md symlink, directory scaffolding, and optional skill linking. Use instead of /init for structured project setup. Triggers on "setup project", "init project", "/setup".
+metadata:
+  type: core
+  status: active
+  summary: "Initialize or restructure a project workspace: AGENTS.md + CLAUDE.md symlink, directory scaffolding, ignore/env templates, local git safety net."
+  created: 2026-06-10
+  updated: 2026-06-16
+  created_by: Šimon Hradní
+  client: ~
+  tags: [skill, setup, scaffolding]
 ---
 
 # Project Setup
@@ -75,20 +84,20 @@ Create only what doesn't already exist. Never overwrite existing files.
 - `.claude/rules/` (empty directory)
 - `notes.md` (skeleton: `# Notes\n\nIdeas, brain dumps, future automations.`)
 - `research/` (empty directory)
-- `.claudeignore` with content:
+- `.gitignore` and `.claudeignore` from the standard templates (single source of truth - never hand-write them inline):
+  ```bash
+  [ -f .gitignore ]    || cp ~/.claude/templates/gitignore .gitignore
+  [ -f .claudeignore ] || cp ~/.claude/templates/claudeignore .claudeignore
   ```
-  node_modules/
-  dist/
-  build/
-  .next/
-  .env
-  .env.*
-  *.log
-  .DS_Store
-  *.lock
+  Both are copy-if-missing (never overwrite). The `.claudeignore` is deliberately permissive: it only keeps heavy/derived dirs out of auto-loaded context (token hygiene), it is NOT a security boundary - secret blocking lives in `settings.json` deny + the `bash-safety-extended.py` hook.
+- `.env.example` (type-specific schema) + `.env.shared` (soft tier), copy-if-missing. Map the project type to the template: Klient→`klient`, Dev→`dev`, App→`app`, General/Business→`general`.
+  ```bash
+  [ -f .env.example ] || cp ~/.claude/templates/{type}-env.example .env.example   # {type} = klient|dev|app|general
+  [ -f .env.shared ]  || cp ~/.claude/templates/env-shared.example .env.shared
   ```
+  These are EMPTY schemas with requirement notes in `#` comments, NEVER real values (a weak example value like `password=changeme` would teach Claude to generate weak secrets). `.env.example` documents which keys this workspace type uses; real secrets go in `.env` (HARD, Claude never reads), soft low-risk values go in `.env.shared` (Claude-readable). Account-level keys are NOT per-project - they live in the global `~/.claude/.env`. See `respect-denies.md` for the three env tiers.
 
-> **Secrets convention.** `.env` and `.env.*` are gitignored, and Claude is hard-blocked from reading their values (deny rules + the `bash-safety-extended.py` hook, which covers `cat`/`source`/redirection/`python -c`/docker-mount and the `Read` tool). The ONE exception is **`.env.local`**: the deliberate, single channel for handing Claude an API key or token. Create it on purpose only when Claude genuinely needs a credential. Claude may READ `.env.local` (and `.env.example`/`.sample`/`.template` placeholders), never any other env file. To learn the key NAMES of a protected env without exposing values, Claude runs `~/.claude/scripts/list-env-keys.sh --from <path>`.
+> **Secrets convention.** `.env` and `.env.*` are gitignored, and Claude is hard-blocked from reading their values (deny rules + the `bash-safety-extended.py` hook, which covers `cat`/`source`/redirection/`python -c`/docker-mount and the `Read` tool). The ONE readable env file is **`.env.shared`** - the soft tier for low-risk values safe to surface (a notify webhook, a contact email). `.env`, `.env.local`, `.env.production` and every other `.env.*` are HARD: their values never reach Claude (`.env.local` is HARD on purpose - the JS ecosystem treats it as the live-secret file, so live keys land there). Placeholders (`.env.example`/`.sample`/`.template`) are readable. To learn the key NAMES of a hard env without exposing values, Claude runs `~/.claude/scripts/list-env-keys.sh --from <path>`; add `--classify` to also get each key's value-STATE (empty / placeholder / filled + kind, e.g. `api_key`/`token`/`webhook_url`) - the value is read only to derive the label and is never surfaced.
 
 **Klient:**
 - `docs/meetings/transcripts/`
@@ -166,7 +175,18 @@ Created: {YYYY-MM-DD}
 In progress.
 ```
 
-## Step 7: Summary
+## Step 7: Initialize local git (safety net)
+
+Give the new workspace a local time machine from day one - local only, no GitHub, no push:
+
+```bash
+~/.claude/scripts/git-autosave.sh ensure   # git init + standard .gitignore from ~/.claude/templates/gitignore (only if missing)
+git add -A && git commit -q -m "chore: scaffold project"   # first snapshot
+```
+
+Run from the workspace root. `ensure` is a no-op if git already exists; it never overwrites an existing `.gitignore`, and it does NOT set a git identity (it uses the user's own global `~/.gitconfig`). Commits stay local - pushing to GitHub is always a separate, deliberate action.
+
+## Step 8: Summary
 
 Report what was created:
 - Files created/modified (list)

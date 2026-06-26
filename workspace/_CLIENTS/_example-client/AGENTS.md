@@ -1,3 +1,18 @@
+---
+type: core
+title: "AGENTS"
+status: approved
+summary: "Template document for organizing client engagement structure, knowledge base, meeting records, and project documentation with automated processing workflows."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
+client: ~
+path: workspace/_CLIENTS/_example-client/AGENTS.md
+tags: [agents-manifest]
+version: "1.0.0"
+release: latest
+---
+
 <purpose>
 Client engagement: {{CLIENT_NAME}}.
 

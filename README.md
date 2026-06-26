@@ -1,3 +1,18 @@
+---
+type: core
+title: "Claude Code Starter Pack"
+status: approved
+summary: "A curated baseline configuration for Claude Code: hard safety defaults, opinionated workspace scaffolding, and a small set of bundled skills."
+created: 2026-06-10 00:00
+updated: 2026-06-10 00:00
+owner: Šimon Hradní
+client: ~
+path: README.md
+tags: [readme]
+version: "1.0.0"
+release: latest
+---
+
 # Claude Code Starter Pack
 
 A curated baseline configuration for Claude Code: hard safety defaults, opinionated workspace scaffolding, and a small set of bundled skills. Designed to be installed once and lived in.
@@ -8,12 +23,12 @@ A curated baseline configuration for Claude Code: hard safety defaults, opiniona
 
 ### Kernel (`~/.claude/`)
 - **Restrictive `settings.json`** - destructive bash patterns, sensitive file reads, and `--no-verify` style escapes are denied at the global level. Bypass mode is locked off.
-- **Safety hook** - catches two-step download-execute, subshell bypasses, secret-file reads (every `.env` except the deliberate `.env.local` handoff), and other patterns that simple deny rules miss.
+- **Safety hook** - catches two-step download-execute, subshell bypasses, a recursive `rm` hidden in a chained command, a `mv` that would silently overwrite an existing file, secret-file reads (every `.env` / `.env.*` except the readable `.env.shared` soft tier and non-secret templates), and other patterns that simple deny rules miss.
 - **Auto-research hook** - detects unmarked notes in `notes.md` files, dispatches background research via the Anthropic API, marks each as ✅ (research done) or ⏭️ (skipped).
 - **Inbox-processor hook** - extracts knowledge from documents dropped in `docs/inbox/` to a knowledge-base drafts area.
 - **Time-injection hook** - adds the current local time to Claude's context every prompt (so timestamps in notes are accurate).
-- **Four baseline rules** - documentation standard, respect-denies behavior, subagent usage guide, notes convention.
-- **Four bundled skills** - `setup` (project scaffolding), `skill-creator`, `prd-creator`, `dr-prompt`.
+- **Six baseline rules** - documentation standard, frontmatter standard, respect-denies behavior, subagent usage guide, notes convention, language.
+- **Eight bundled skills** - `setup` (project scaffolding), `skill-creator`, `prd-creator`, `dr-prompt`, `client-data-check` (offline PII scan), `idea-file-creator` (capture a thought as a leak-free idea file), `checkpoint` + `end` (session worklog discipline).
 - **Helper script** - `list-env-keys.sh` lets Claude see *names* of your credential env vars without ever touching values.
 
 ### Workspace (`~/Documents/`)

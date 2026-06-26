@@ -1,3 +1,18 @@
+---
+type: notes
+title: "Research Prompt Examples"
+status: approved
+summary: "Reference examples for different research types."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
+client: ~
+path: kernel/skills/dr-prompt/references/examples.md
+tags: [note]
+version: "1.0.0"
+release: latest
+---
+
 # Research Prompt Examples
 
 Reference examples for different research types. Use as inspiration for structure, depth, and topic-specific adaptations.

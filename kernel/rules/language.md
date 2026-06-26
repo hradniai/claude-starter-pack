@@ -1,3 +1,18 @@
+---
+type: notes
+title: "Language"
+status: approved
+summary: "Single authority for WHICH language to use, and when the answer is not English, HOW to write it natively."
+created: 2026-06-13 20:48
+updated: 2026-06-13 20:48
+owner: Šimon Hradní
+client: ~
+path: kernel/rules/language.md
+tags: [note]
+version: "1.0.0"
+release: latest
+---
+
 <language>
 
 # Language

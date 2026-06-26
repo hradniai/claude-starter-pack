@@ -1,3 +1,18 @@
+---
+type: notes
+title: "Uživatelský manuál"
+status: approved
+summary: "Pack je hotové nastavení pro **Claude Code (CC)** - terminálovou appku od Anthropic, která umí dělat věci na tvém počítači (psát soubory, spouštět příkazy, instalovat prakticky cokoliv)."
+created: 2026-06-10 00:00
+updated: 2026-06-10 00:00
+owner: Šimon Hradní
+client: ~
+path: UZIVATELSKY-MANUAL.md
+tags: [note]
+version: "1.0.0"
+release: latest
+---
+
 # Uživatelský manuál
 
 Pack je hotové nastavení pro **Claude Code (CC)** — terminálovou appku od Anthropic, která umí dělat věci na tvém počítači (psát soubory, spouštět příkazy, instalovat prakticky cokoliv). Tento starter pack CC nakonfiguruje tak, aby ti omylem nesmazal disk a nezasahoval do citlivých věcí.

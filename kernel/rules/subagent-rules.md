@@ -1,3 +1,18 @@
+---
+type: notes
+title: "subagent-rules"
+status: approved
+summary: "Guidelines for dispatching parallel subagents in Claude, covering when to use them, what they inherit, model selection, prompt quality, and mandatory reporting standards."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
+client: ~
+path: kernel/rules/subagent-rules.md
+tags: [note]
+version: "1.0.0"
+release: latest
+---
+
 <subagent_rules>
 
 ## When to use
