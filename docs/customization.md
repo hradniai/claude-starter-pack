@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "Customization"
-status: active
+status: approved
 summary: "How to extend, modify, or replace pieces of the starter pack to fit your work."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: docs/customization.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 # Customization

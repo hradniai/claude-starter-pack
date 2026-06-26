@@ -1,14 +1,16 @@
 ---
 type: core
 title: "Rules"
-status: active
+status: approved
 summary: "Files in this directory are auto-loaded into every Claude Code session as system context."
-created: 2026-06-13
-updated: 2026-06-13
-created_by: Šimon Hradní
+created: 2026-06-13 20:48
+updated: 2026-06-13 20:48
+owner: Šimon Hradní
 client: ~
 path: kernel/rules/README.md
 tags: [readme]
+version: "1.0.0"
+release: latest
 ---
 
 # Rules

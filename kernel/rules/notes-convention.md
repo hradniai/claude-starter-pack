@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "notes-convention"
-status: active
-summary: ""
-created: 2026-05-07
-updated: 2026-05-07
-created_by: Šimon Hradní
+status: approved
+summary: "Convention for per-project notes.md files with auto-research workflow that evaluates unmarked entries and assigns research markers."
+created: 2026-05-07 00:33
+updated: 2026-05-07 17:13
+owner: Šimon Hradní
 client: ~
 path: kernel/rules/notes-convention.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 <notes_convention>

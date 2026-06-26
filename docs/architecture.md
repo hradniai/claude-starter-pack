@@ -1,14 +1,16 @@
 ---
 type: context
 title: "Architecture"
-status: active
+status: approved
 summary: "How the starter pack is laid out and why each piece exists."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 14:00
+updated: 2026-05-01 14:00
+owner: Šimon Hradní
 client: ~
 path: docs/architecture.md
 tags: [handbook]
+version: "1.0.0"
+release: latest
 ---
 
 # Architecture

@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "dev-claude"
-status: active
-summary: ""
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+status: approved
+summary: "Project template documentation guide for organizing development setup, architecture decisions, and feature documentation in a standardized format."
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: kernel/templates/dev-claude.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 <purpose>

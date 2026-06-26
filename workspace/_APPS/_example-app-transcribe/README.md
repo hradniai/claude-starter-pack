@@ -1,14 +1,16 @@
 ---
 type: core
 title: "Transcribe (stub)"
-status: active
+status: approved
 summary: "Local audio/video → markdown transcript via LLM API."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: workspace/_APPS/_example-app-transcribe/README.md
 tags: [readme]
+version: "1.0.0"
+release: latest
 ---
 
 # Transcribe (stub)

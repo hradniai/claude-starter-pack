@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "Workflow Patterns"
-status: active
+status: approved
 summary: "For complex tasks, break operations into clear, sequential steps."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: kernel/skills/skill-creator/references/workflows.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 # Workflow Patterns

@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "klient-claude"
-status: active
-summary: ""
-created: 2026-05-07
-updated: 2026-05-07
-created_by: Šimon Hradní
+status: approved
+summary: "Project template documenting client engagement structure, knowledge management workflows, file organization, and constraints for collaborative client work."
+created: 2026-05-07 00:33
+updated: 2026-05-07 00:33
+owner: Šimon Hradní
 client: ~
 path: kernel/templates/klient-claude.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 <purpose>

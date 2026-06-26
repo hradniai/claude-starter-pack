@@ -1,14 +1,16 @@
 ---
 type: context
 title: "respect-denies"
-status: active
-summary: ""
-created: 2026-06-10
-updated: 2026-06-16
-created_by: Šimon Hradní
+status: approved
+summary: "Protocol defining how Claude must handle denied commands: stop immediately, inform the user explicitly, provide exact copy-paste commands, and never attempt workarounds."
+created: 2026-06-10 00:00
+updated: 2026-06-16 16:59
+owner: Šimon Hradní
 client: ~
 path: kernel/rules/respect-denies.md
 tags: [standard]
+version: "1.0.0"
+release: latest
 ---
 
 <respect_denies>

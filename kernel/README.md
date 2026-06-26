@@ -1,13 +1,16 @@
 ---
 type: core
 title: "Kernel - install into ~/.claude"
-status: active
+status: approved
 summary: "What the Claude Code starter-pack kernel ships (settings, hooks, rules, skills, agents, templates, scripts) and how to install it into ~/.claude as a merge."
-created: 2026-06-16
-updated: 2026-06-16
-created_by: Šimon Hradní
+created: 2026-06-16 16:59
+updated: 2026-06-16 16:59
+owner: Šimon Hradní
 client: ~
 tags: [readme, claude-code, setup-guide]
+version: "1.0.0"
+release: latest
+path: kernel/README.md
 ---
 
 # Kernel - install into `~/.claude`

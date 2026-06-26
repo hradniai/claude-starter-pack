@@ -1,14 +1,16 @@
 ---
 type: core
 title: "Custom Subagents"
-status: active
+status: approved
 summary: "This directory holds custom subagent definitions."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: kernel/agents/README.md
 tags: [readme]
+version: "1.0.0"
+release: latest
 ---
 
 # Custom Subagents

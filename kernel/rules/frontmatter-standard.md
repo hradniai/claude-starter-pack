@@ -1,14 +1,16 @@
 ---
 type: context
 title: "Document frontmatter standard"
-status: active
+status: approved
 summary: "The unified YAML frontmatter standard for every markdown artifact - an OKF-aligned superset with closed type buckets, a lifecycle status, and a predefined tag vocabulary, so an agent can orient from the frontmatter alone."
-created: 2026-06-16
-updated: 2026-06-16
-created_by: Šimon Hradní
+created: 2026-06-16 16:59
+updated: 2026-06-16 16:59
+owner: Šimon Hradní
 client: ~
 path: ~/.claude/rules/frontmatter-standard.md
 tags: [methodology, standard, frontmatter, okf, documentation, claude-code]
+version: "1.0.0"
+release: latest
 ---
 
 # Document frontmatter standard

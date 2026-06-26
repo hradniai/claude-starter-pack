@@ -1,14 +1,16 @@
 ---
 type: context
 title: "documentation-standard"
-status: active
-summary: ""
-created: 2026-06-13
-updated: 2026-06-16
-created_by: Šimon Hradní
+status: approved
+summary: "Documentation standard defining AI-friendly project structure with XML/Markdown conventions, required files, and append-only engineering logs."
+created: 2026-06-13 20:48
+updated: 2026-06-16 16:59
+owner: Šimon Hradní
 client: ~
 path: kernel/rules/documentation-standard.md
 tags: [standard]
+version: "1.0.0"
+release: latest
 ---
 
 <documentation_standard>

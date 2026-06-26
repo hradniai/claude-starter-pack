@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "Notes"
-status: active
+status: approved
 summary: "Brain dump for ideas, impulses, and things to explore."
-created: 2026-05-01
-updated: 2026-05-01
-created_by: Šimon Hradní
+created: 2026-05-01 00:00
+updated: 2026-05-01 00:00
+owner: Šimon Hradní
 client: ~
 path: workspace/_CONTEXT/notes.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 # Notes

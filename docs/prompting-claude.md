@@ -1,14 +1,16 @@
 ---
 type: notes
 title: "Prompting Claude - Quick Reference"
-status: active
+status: approved
 summary: "Claude Code uses Anthropic's Claude models (Opus / Sonnet / Haiku)."
-created: 2026-05-07
-updated: 2026-05-07
-created_by: Šimon Hradní
+created: 2026-05-07 17:13
+updated: 2026-05-07 17:13
+owner: Šimon Hradní
 client: ~
 path: docs/prompting-claude.md
 tags: [note]
+version: "1.0.0"
+release: latest
 ---
 
 # Prompting Claude — Quick Reference
