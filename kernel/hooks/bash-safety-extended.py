@@ -4,6 +4,9 @@ PreToolUse safety hook for Bash + Read.
 
 Blocks dangerous patterns that plain deny rules miss:
 - two-step download-and-execute, pipe-to-shell, subshell/eval bypasses
+- recursive+forced rm hidden in a chained/compound command (deny rules only
+  match rm at the start of a command)
+- a plain mv that would silently overwrite an existing destination
 - reading secret VALUES from env files into Claude's context
 - reading ssh/aws/gnupg/git-credentials/browser data
 - docker host-root mount, --privileged, sensitive host mount
@@ -82,6 +85,59 @@ def env_block_reason_bash(command):
             "`.env.shared` for soft values safe to surface. Passing it as config "
             "(e.g. `--env-file`) is fine." % (protected[0], HELPER)
         )
+    return None
+
+
+def rm_recursive_force(command):
+    """True if ANY segment invokes rm with BOTH a recursive and a force flag.
+
+    Defense-in-depth beyond the deny rules: a permission rule like `rm -rf *` only
+    matches rm at the START of a command, so a chained/embedded form such as
+    `cd build && rm -rf .` slips past it. This inspects every shell segment and
+    checks the flags on the rm invocation itself (short bundles per-letter, long
+    flags by exact name), so it does not false-positive on another command's flags.
+    """
+    for seg in re.split(r'&&|\|\||[|;&\n]', command):
+        m = re.match(r'\s*(?:\w+=\S+\s+)*(?:command\s+|\\)?rm\b(.*)', seg, re.IGNORECASE)
+        if not m:
+            continue
+        has_r = has_f = False
+        for tok in re.findall(r'(?<!\S)--?[A-Za-z][A-Za-z-]*', m.group(1)):
+            if tok.startswith('--'):
+                has_r = has_r or tok == '--recursive'
+                has_f = has_f or tok == '--force'
+            else:  # short bundle like -rf / -r / -fr
+                has_r = has_r or 'r' in tok or 'R' in tok
+                has_f = has_f or 'f' in tok or 'F' in tok
+        if has_r and has_f:
+            return True
+    return False
+
+
+def mv_overwrite_target(command):
+    """Return the existing destination a plain `mv` would silently overwrite, else None.
+
+    Migration-safety guard: `mv a b` where b already exists destroys b with no warning.
+    Best-effort - skips globs/quotes/vars/flags so it does not misfire on dynamic paths.
+    """
+    for seg in re.split(r'&&|\|\||[|;&\n]', command):
+        m = re.match(r'\s*(?:\w+=\S+\s+)*mv\b(.*)', seg, re.IGNORECASE)
+        if not m:
+            continue
+        args = m.group(1).strip()
+        if not args or any(c in args for c in '*?"\'$`~[]{}'):
+            continue  # too dynamic to reason about safely
+        parts = [p for p in args.split() if not p.startswith('-')]
+        if len(parts) < 2:
+            continue
+        dest = parts[-1]
+        for src in parts[:-1]:
+            target = os.path.join(dest, os.path.basename(src.rstrip('/'))) if os.path.isdir(dest) else dest
+            try:
+                if os.path.lexists(target) and os.path.abspath(target) != os.path.abspath(src):
+                    return target
+            except OSError:
+                continue
     return None
 
 
@@ -165,6 +221,18 @@ def main():
     reason = env_block_reason_bash(command)
     if reason:
         block(reason, command)
+
+    if rm_recursive_force(command):
+        block("recursive + forced rm in a chained/compound command. The deny rules "
+              "only catch rm at the start of a command; this catches it anywhere. "
+              "If you must delete recursively, ask the user to run it themselves.",
+              command)
+
+    mv_target = mv_overwrite_target(command)
+    if mv_target:
+        block("this mv would silently overwrite an existing path (%s). Verify it, then "
+              "move/rename deliberately - or remove the existing target yourself first." % mv_target,
+              command)
 
     for pattern, why in DANGEROUS:
         if re.search(pattern, command, re.IGNORECASE):
