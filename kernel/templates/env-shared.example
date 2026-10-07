@@ -1,0 +1,17 @@
+# ============================================================================
+# .env.shared - SOFT tier. Readable by Claude, safe to surface in conversation.
+# STILL gitignored (readable != committed). Values EMPTY on purpose.
+#
+# Put here ONLY values that grant nothing to whoever reads them:
+#   - contact / notify email addresses
+#   - a public base URL, a feature flag, a non-secret ID
+#
+# Do NOT put here: any webhook URL (Slack, Discord, n8n, Zapier, ...), because the
+# URL itself is the credential and anyone holding it can post or trigger through
+# it; nor anything ending in _SECRET / _KEY / _TOKEN / _PASSWORD. Those are HARD:
+# they go in .env (or ~/.claude/.env), and programs use them by variable name.
+# ============================================================================
+
+# CONTACT_EMAIL=
+# NOTIFY_EMAIL=
+# PUBLIC_BASE_URL=

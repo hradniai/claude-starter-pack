@@ -1,0 +1,6 @@
+# Every text file is checked out with LF line endings, whatever core.autocrlf says. Git for Windows
+# defaults to core.autocrlf=true, which would turn the shell scripts into CRLF on checkout; sh then
+# fails on python-launcher.sh ("Syntax error: word unexpected (expecting "in")") with exit 2, so every
+# command Claude runs is blocked with a message nobody can act on. Binary files are detected and left
+# alone.
+* text=auto eol=lf

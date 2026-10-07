@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backups
+*.bak
+*.bak-*
+*.backup
+
+# Local-only env files (never commit credentials)
+.env
+.env.local
+.env.*.local
+
+# OS / shell artifacts
+.zsh_history
+.bash_history
+
+# Installer handoff file: written in the cloned folder by the AI that follows INSTRUCTIONS.md
+INSTALL-PROGRESS.md
+
+# Python bytecode (the tests import kernel/scripts modules)
+__pycache__/
+*.pyc

@@ -1,0 +1,26 @@
+# ============================================================================
+# CLIENT workspace - .env.example
+# Real values go in .env (HARD). Values here are EMPTY on purpose; fill to the
+# requirement in each `#` note. Most client docs workspaces need little; client
+# CODE repos add auth + integrations. Account / admin tokens stay GLOBAL in
+# ~/.claude/.env.
+# ============================================================================
+
+# --- LLM providers (all clients) -----------------------------------------
+ANTHROPIC_API_KEY=        # project-runtime key
+OPENAI_API_KEY=
+GEMINI_API_KEY=
+
+# --- If this client workspace is a CODE repo, fill / uncomment what it uses
+# APP_URL=
+# DB_HOST=                # localhost (dev) | db (docker) | host (prod)
+# DB_PORT=                # 5432 for Postgres
+# DB_NAME=                # descriptive, e.g. <client>_db
+# DB_USER=                # descriptive, e.g. <client>_app
+# DB_PASSWORD=            # strong random, >=24 chars (openssl rand -base64 32)
+# DATABASE_URL=           # postgres://<user>:<password>@<host>:<port>/<db>
+# JWT_SECRET=             # lightweight auth: strong random, >=32 chars (openssl rand -base64 48)
+# USERS=                  # user@email:password:role,...
+# <SERVICE>_ACCESS_TOKEN= # client CRM token (e.g. HubSpot / Pipedrive) - per client, may be temporary
+# N8N_WEBHOOK_<NAME>=     # production trigger URL https://...  (capability-bearing -> HARD)
+# WEBHOOK_CALLBACK_SECRET=# strong random; verifies inbound callbacks

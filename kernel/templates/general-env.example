@@ -1,0 +1,10 @@
+# ============================================================================
+# GENERAL workspace - .env.example  (internal, business, projects)
+# These mostly run on Claude's global automations (~/.claude/.env); a local
+# .env is rarely needed. Values EMPTY on purpose. Uncomment only if THIS
+# workspace runs its own automation needing a scoped secret.
+# ============================================================================
+
+# ANTHROPIC_API_KEY=      # project-runtime key
+# OPENAI_API_KEY=
+# GEMINI_API_KEY=
