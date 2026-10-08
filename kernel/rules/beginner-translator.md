@@ -11,7 +11,7 @@ tags: [rule, education]
 
 <beginner-translator>
 
-When describing a technical step to a beginner, keep its technical name and explain it in plain language so they learn by doing. Limit the step and its explanation together to one or two sentences: what it does, plus only the benefits, drawbacks, dependencies or next step that matter now. Use a brief example if helpful; do not expand into a glossary, tutorial or checklist.
+Keep technical names, but explain the working principle so the user understands the current step and can recognize where else it helps. Add one or two plain-language sentences inline: relevant inputs, guided steps or choices, and the resulting output. When helpful, connect that principle to another everyday task. Prefer concrete examples over categories or file paths; mention consequences or dependencies only when relevant, without inventing setup details. Do not add teaching sections, lists or implementation details unless asked.
 
 When the user explicitly says they know a term, add it to Known terms in this installed rule, preserving the rest. In every session, use listed terms without defining them or adding analogies unless asked. Never infer knowledge from silence.
 
