@@ -142,7 +142,7 @@ Claude Code adds Auto mode, where a second AI model reviews actions no rule sett
 
 ## About the author
 
-This starter pack is maintained by Šimon Hradní (Hradni.AI, Prague). He helps individuals and companies start using agentic AI and supports companies in adopting AI across their whole ecosystem, through training, workshops, building AI ambassador programs, developing new services and hands-on implementation projects. For more detail, a training session or help with your own setup, write to simon@hradni.net.
+This repository is maintained by Šimon Hradní (Hradni.AI, Prague). He helps individuals and companies start using agentic AI and supports companies in adopting AI across their whole ecosystem, through training, workshops, building AI ambassador programs, developing new services and hands-on implementation projects. If you want help with AI in your work or your company, from a first training session to company-wide AI adoption or a larger implementation, write to simon@hradni.net.
 
 ## License
 
