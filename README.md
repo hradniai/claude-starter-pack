@@ -146,4 +146,6 @@ This starter pack is maintained by Šimon Hradní (Hradni.AI, Prague). He helps 
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Apache License 2.0 (see [LICENSE](LICENSE)). You may use, change and share this starter pack, also commercially. When you pass on a copy or a changed version, keep the [NOTICE](NOTICE) file, which credits the author and links to the original, and mark what you changed.
+
+A friendly request, not a legal condition: if you write or talk about this starter pack, please mention Šimon Hradní and link to this repository. If you improve it, consider suggesting the change here (an issue or pull request) rather than publishing a separate copy, so everyone gets the improvement.
