@@ -21,7 +21,8 @@ that would update main or master on the remote, wherever it sits in the command:
                                      URL is not the one its tracking refs come from), or a mirror remote
   git push "$R" / git --config-env=push.default=X push / GIT_CONFIG_COUNT=1 ... git push
                                      where the remote or the configuration that decides the destination
-                                     is not known before the command runs
+                                     is not known before the command runs (a refspec that names its own
+                                     destination, HEAD:feature/x, does not depend on either)
 
 It also looks inside if / then / loops, && chains, $( ), backticks, bash -c and eval. It stays quiet
 on branch names that only contain the word (feature/main-menu, maintenance, main-fix), on tags
@@ -166,8 +167,8 @@ class State(object):
         self.vars = {}
         self.branch = {}
         self.started = set()
-        self.env = set()            # variables the current command sets in its own environment (X=1 git ...)
-        self.exported = set()       # variables exported earlier in the line
+        self.env = {}               # variables the current command sets in its own environment (X=1 git ...)
+        self.exported = {}          # variables exported earlier in the line (None: value not known)
 
 
 def simple_commands(command, cwd, state, depth=0):
@@ -211,19 +212,20 @@ def simple_commands(command, cwd, state, depth=0):
             for item in simple_commands(' '.join(argv[1:]), cwd, state, depth + 1):
                 yield item
         elif name in ('export', 'declare', 'typeset'):
-            state.exported |= {m.group(1) for m in (re.match(r'^([A-Za-z_][A-Za-z0-9_]*)(?:=|$)', w)
-                                                    for w in argv[1:]) if m}
+            state.exported.update(command_env(argv[1:], bare=True))
         else:
             record_branch_change(argv, cwd, state)
 
 
-def command_env(words):
-    """Names a simple command sets in its own environment: X=1 git ..., env X=1 git ..."""
-    names = set()
+def command_env(words, bare=False):
+    """{name: value} a simple command sets in its own environment (X=1 git ..., env X=1 git ...), or that
+    export names (bare=True also takes `export X`); None for a value that is not known."""
+    names = {}
     for w in words:
-        m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=', w)
-        if m:
-            names.add(m.group(1))
+        m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)(?:=(.*))?$', w, re.S)
+        if m and (m.group(2) is not None or bare):
+            value = m.group(2)
+            names[m.group(1)] = None if value is None or set(value) & set('$`(') else value
         elif not (w in KEYWORDS or program(w) in WRAPPERS or w.startswith('-')):
             break
     return names
@@ -317,8 +319,10 @@ def git_overrides(argv):
 def unreadable_config(argv, state):
     """Why the configuration that decides where a push goes cannot be read before it runs, or None: git
     --config-env takes a value from the environment, -c include.path pulls in another file, and the
-    GIT_CONFIG_* variables add settings or files. Only settings that can move a push count for
-    --config-env (push.*, remote.*, branch.*, include*); --config-env=http.extraHeader=AUTH passes."""
+    GIT_CONFIG_* variables add settings or files (GIT_CONFIG_COUNT=0 adds none). Only settings that can
+    move a push count for --config-env (push.*, remote.*, branch.*, url.*, include*);
+    --config-env=http.extraHeader=AUTH passes. Asked only when the configuration decides the destination
+    (check_push: a bare push, or a refspec without its own destination)."""
     i = 1
     while i < len(argv) and argv[i].startswith('-'):
         a, value = argv[i], None
@@ -332,11 +336,13 @@ def unreadable_config(argv, state):
             i += 1
         elif a in ('-C', '--git-dir', '--work-tree', '--namespace') and i + 1 < len(argv):
             i += 1
-        if value is not None and value.lower().startswith(('push.', 'remote.', 'branch.', 'include')):
+        if value is not None and value.lower().startswith(('push.', 'remote.', 'branch.', 'url.', 'include')):
             return 'a git push whose %s comes from the environment (--config-env), so where it goes ' \
                    'cannot be told' % value.split('=', 1)[0]
         i += 1
-    names = sorted(n for n in state.env | state.exported if n.startswith('GIT_CONFIG'))
+    env = dict(state.exported, **state.env)
+    files = ('GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM')
+    names = sorted(n for n, v in env.items() if n in files or (n == 'GIT_CONFIG_COUNT' and v != '0'))
     if names:
         return 'a git push with %s set, configuration this guard cannot read' % ', '.join(names)
     return None
@@ -405,6 +411,17 @@ def pushes_elsewhere(config, remote):
     return None
 
 
+def has_local_protected(directory):
+    """True when the repository has a local main or master (or when that cannot be read)."""
+    try:
+        r = subprocess.run(['git', '-C', directory, 'for-each-ref', '--format=%(refname)']
+                           + ['refs/heads/%s' % p for p in PROTECTED],
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return r.returncode != 0 or bool(r.stdout.strip())
+
+
 def matching_target(directory, remote):
     """The protected branch a push of matching branches can update: a local main or master that differs
     from (or has no) remote-tracking copy, or None."""
@@ -464,9 +481,10 @@ def implicit_destinations(config, branch, remote, started):
     return 'a bare git push with push.default=%s, whose destination cannot be told' % mode
 
 
-def mapped_destination(src, branch, configured):
-    """Where remote.<name>.push sends a refspec typed without a destination (git push origin feature),
-    or None when no configured refspec covers it (it then goes to the same name)."""
+def mapped_destination(src, branch, configured, config=None):
+    """Where a refspec typed without a destination goes (git push origin feature): what remote.<name>.push
+    maps it to, else under push.default=upstream (or tracking) the upstream of the local branch it names
+    (git maps a branch name there, not HEAD), else None (it goes to the same name)."""
     names = {src, 'refs/heads/' + src}
     if is_head(src) and branch:
         names |= {branch, 'refs/heads/' + branch, 'HEAD'}
@@ -481,6 +499,10 @@ def mapped_destination(src, branch, configured):
                 if name.startswith('refs/') and fnmatch.fnmatchcase(name, csrc):
                     head, _, tail = csrc.partition('*')
                     return cdst.replace('*', name[len(head):len(name) - len(tail)], 1)
+    if config is not None and not is_head(src) and \
+            (config_value(config, 'push.default') or 'simple').lower() in ('upstream', 'tracking'):
+        local = src[len('refs/heads/'):] if src.startswith('refs/heads/') else src
+        return config_value(config, 'branch.%s.merge' % local)
     return None
 
 
@@ -562,9 +584,6 @@ def check_push(argv, cwd, state):
         return None
     if every:
         return 'git push %s pushes every branch, main/master included' % every
-    reason = unreadable_config(argv, state)
-    if reason:
-        return reason
     refspecs, k = [], 0 if remote_given is not None else 1
     while k < len(positional):
         if positional[k] == 'tag' and k + 1 < len(positional):
@@ -572,6 +591,14 @@ def check_push(argv, cwd, state):
             continue
         refspecs.append(positional[k])
         k += 1
+    # A refspec that names its own destination (HEAD:feature/x, :old) goes there whatever the configuration
+    # says; a bare push and a refspec without one (feature/x, HEAD, ':') depend on it.
+    depends = (not refspecs and not tags) or not all(
+        r.lstrip('+').partition(':')[1] and r.lstrip('+').partition(':')[2] for r in refspecs)
+    if depends:
+        reason = unreadable_config(argv, state)
+        if reason:
+            return reason
 
     def checked_out():
         branch = state.branch.get(directory)
@@ -582,8 +609,7 @@ def check_push(argv, cwd, state):
     remote = remote_given if remote_given is not None else (positional[0] if positional else None)
     if remote is not None:
         resolved = substitute(remote, state)
-        if resolved is None and (not refspecs or any(':' not in r.lstrip('+') or r.lstrip('+') == ':'
-                                                     for r in refspecs)):
+        if resolved is None and depends:
             return 'a git push to %s, a remote whose name is not known before the command runs, so where ' \
                    'its configuration sends the push cannot be told' % remote
         remote = resolved if resolved is not None else remote
@@ -607,10 +633,12 @@ def check_push(argv, cwd, state):
                     branch = branch if isinstance(branch, str) else None
                     configured = configuration().get(
                         config_key('remote.%s.push' % push_remote(configuration(), branch, remote)))
-                    mapped = mapped_destination(src, branch, configured or [])
+                    mapped = mapped_destination(src, branch, configured or [], configuration())
                     if mapped is not None:
                         dst = mapped
             if colon and not src and not dst:           # ':' pushes matching branches
+                if not has_local_protected(directory):
+                    continue                            # no local main/master: matching cannot push one
                 to = push_to or push_remote(configuration(), None, remote)
                 elsewhere = pushes_elsewhere(configuration(), to)
                 if elsewhere:

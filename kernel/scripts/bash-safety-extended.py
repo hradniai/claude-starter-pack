@@ -117,7 +117,6 @@ Decisions on bad input (deliberate)
 Output: exit 0 = allow; exit 2 = block, with the reason on stderr (shown to Claude). Python 3.9+,
 standard library only.
 """
-import bisect
 import copy
 import fnmatch
 import glob
@@ -4451,6 +4450,7 @@ CODE_JOIN_WORDS_RE = LazyPattern(r'\b(?:os\.path\.join|path\.join|joinpath|join|
                                  r'|Join-Path|tempfile)\b')
 MAX_CALL_CHARS = 2000
 MAX_TEMP_NAMES = 200           # names one piece of inline code may assign a temporary folder to
+MAX_TEMP_PASSES = 10           # readings of those names, for names assigned from names assigned from ...
 MAX_SCAN_TOKENS = 200000       # tokens read for the arguments of every move in one piece of code, in total
 
 
@@ -4613,62 +4613,59 @@ def code_move_destinations(code):
 
 
 class TempNames(object):
-    """The names inline code assigns a temporary folder to, as of a position in the code (the last
-    assignment before it wins: d = '/tmp/x'; d = 'archive' leaves d ordinary). Assignments come from
-    d = tempfile.mkdtemp(), const t = os.tmpdir(), $d = [IO.Path]::GetTempPath(), `with
-    TemporaryDirectory() as d`, Ruby `Dir.mktmpdir do |d|`, a JS callback `d =>`, and names assigned from
-    those (p = os.path.join(d, 'x')). Each is "maybe temporary" when its value names such a place or name
-    (a destination there is judged temporary), and "surely temporary" when the value also stays inside
-    one (code_source_in_temp: p = os.path.join(d, os.path.abspath('x')) is not), which alone lets a
-    source count as already temporary. Only names outside string literals count."""
+    """The names inline code assigns a temporary folder to. Assignments come from d = tempfile.mkdtemp(),
+    const t = os.tmpdir(), $d = [IO.Path]::GetTempPath(), `with TemporaryDirectory() as d`, Ruby
+    `Dir.mktmpdir do |d|`, a JS callback `d =>`, and names assigned from those (p = os.path.join(d, 'x')).
+    Scopes and order are not modelled, so every assignment of a name counts, wherever it sits. A name is
+    "maybe temporary" when ANY of its assignments names such a place or name: a destination there is
+    judged temporary (d = '/tmp/x' and, in an uncalled function, d = 'archive' still leave d temporary).
+    It is "surely temporary" only when ALL of its assignments also stay inside one (code_source_in_temp:
+    p = os.path.join(d, os.path.abspath('x')) does not), which alone lets a source count as already
+    temporary. Only names outside string literals count. Names assigned from other names are resolved
+    by repeating the reading until nothing changes (at most MAX_TEMP_PASSES times, then fail closed)."""
 
     def __init__(self, code):
         masked = mask_strings(code)
-        events, offset = [], 0
+        events = []
         for line in masked.split('\n'):
             if TEMP_DIR_MAKER_RE.search(line):
                 for m in CODE_AS_NAME_RE.finditer(line):
-                    events.append((offset + m.start(), m.group(1) or m.group(2) or m.group(3), None, None))
-            offset += len(line) + 1
+                    events.append((m.group(1) or m.group(2) or m.group(3), None, None))
         for m in CODE_ASSIGN_RE.finditer(masked):
-            events.append((m.start(1), m.group(1), m.start(2), m.end(2)))
-        events.sort(key=lambda e: e[0])
-        self.timeline, self.patterns, state = {}, {}, {}
-        for pos, name, start, end in events:
-            if start is None:
-                may = sure = True
-            else:
-                maybe = [self.patterns[n] for n, (m, _) in state.items() if m]
-                may = bool(TEMP_TEXT_RE.search(code[start:end]) or any(p.search(masked[start:end]) for p in maybe))
-                if not may and name not in self.timeline:
-                    continue                                # an ordinary name that never held one
-                surely = [n for n, (_, s) in state.items() if s]
-                sure = may and code_source_in_temp(code[start:end], [self.patterns[n] for n in surely], surely)
-            if name not in self.timeline:
-                if len(self.timeline) >= MAX_TEMP_NAMES:
-                    raise ParseError('inline code with more temporary folder names than the hook can track')
-                self.timeline[name] = ([], [])
-                self.patterns[name] = re.compile(r'(?<![\w$@])' + re.escape(name) + r'(?!\w)')
-            positions, states = self.timeline[name]
-            if not states or states[-1] != (may, sure):
-                positions.append(pos)
-                states.append((may, sure))
-            state[name] = (may, sure)
+            events.append((m.group(1), m.start(2), m.end(2)))
+        maybe, surely = set(), set()
+        for _ in range(MAX_TEMP_PASSES):
+            may_any, sure_all = {}, {}
+            maybe_re, surely_re = _names_pattern(maybe), _names_pattern(surely)
+            for name, start, end in events:
+                if start is None:
+                    may = sure = True
+                else:
+                    value = code[start:end]
+                    may = bool(TEMP_TEXT_RE.search(value) or (maybe_re and maybe_re.search(masked[start:end])))
+                    sure = may and code_source_in_temp(value, [surely_re] if surely_re else [], surely)
+                may_any[name] = may_any.get(name, False) or may
+                sure_all[name] = sure_all.get(name, True) and sure
+            new_maybe = {n for n, v in may_any.items() if v}
+            new_surely = {n for n, v in sure_all.items() if v and n in new_maybe}
+            if len(new_maybe) > MAX_TEMP_NAMES:
+                raise ParseError('inline code with more temporary folder names than the hook can track')
+            if (new_maybe, new_surely) == (maybe, surely):
+                break
+            maybe, surely = new_maybe, new_surely
+        else:
+            raise ParseError('inline code whose temporary folder names depend on each other too deeply')
+        self.maybe = [_names_pattern(maybe)] if maybe else []
+        self.surely = [_names_pattern(surely)] if surely else []
+        self.surely_raw = sorted(surely)
 
-    def at(self, pos):
-        """(patterns of the maybe-temporary names, patterns of the surely-temporary names, those names) at a
-        position. A name used before any assignment (a function defined above the code that sets it)
-        counts as maybe temporary when any assignment makes it so."""
-        maybe, surely, raw = [], [], []
-        for name, (positions, states) in self.timeline.items():
-            k = bisect.bisect_left(positions, pos)
-            may, sure = states[k - 1] if k else (any(st[0] for st in states), False)
-            if may:
-                maybe.append(self.patterns[name])
-            if sure:
-                surely.append(self.patterns[name])
-                raw.append(name)
-        return maybe, surely, raw
+
+def _names_pattern(names):
+    """One pattern that finds any of these names as a whole word (None for no names)."""
+    if not names:
+        return None
+    return re.compile(r'(?<![\w$@])(?:' + '|'.join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+                      + r')(?!\w)')
 
 
 def _quoted_disposal(text):
@@ -4703,7 +4700,12 @@ def code_source_in_temp(src, names, raw):
     literals (or quotes an absolute path inside one), and nothing in it can lead elsewhere. Only temporary
     names, relative literals without .. (or absolute ones inside a temporary folder), interpolations of
     temporary names, and path joining (os.path.join, path.join, Path, /, +) may appear: os.path.join(d, p)
-    passes nothing, because p may be an absolute path, and os.path.join drops d before one."""
+    passes nothing, because p may be an absolute path, and os.path.join drops d before one. A literal
+    joined on with + is a suffix of what precedes it (d + '/word/document.xml'), and '%s/x' % d or
+    '{}/x'.format(d) are read as d + '/x'."""
+    src = re.sub(r'([\'"])(?:%s|\{0?\})([^\'"\n]*)\1\s*(?:%\s*\(?\s*([$@]?[A-Za-z_][\w.]*)\s*,?\s*\)?'
+                 r'|\.format\(\s*([$@]?[A-Za-z_][\w.]*)\s*\))', lambda m: '%s + %s%s%s' % (
+                     m.group(3) or m.group(4), m.group(1), m.group(2), m.group(1)), src)
     masked = mask_strings(src)
     if not (TEMP_TEXT_RE.search(masked) or any(p.search(masked) for p in names) or _quoted_disposal(src)):
         return False
@@ -4711,7 +4713,8 @@ def code_source_in_temp(src, names, raw):
         body = lit.group(0)[1:-1]
         if '..' in body:
             return False
-        if body.startswith(('/', '~', '\\')) or DRIVE_RE.match(body):
+        suffix = src[:lit.start()].rstrip().endswith('+')           # d + '/word/document.xml'
+        if not suffix and (body.startswith(('/', '~', '\\')) or DRIVE_RE.match(body)):
             if not is_disposal(PathRef(expand_user(body.replace('\\\\', '\\')), None).lex):
                 return False
         for ref in re.findall(r'\{([^{}]*)\}|\$(\w+)', body):         # f'{d}/x', `${t}/x`, "$d\x"
@@ -4735,8 +4738,8 @@ def code_moves_to_disposal(code):
             continue
         if names is None:
             names = TempNames(code)
-        maybe, surely, raw = names.at(pos)
-        if names_disposal(dest, maybe) and not (src is not None and code_source_in_temp(src, surely, raw)):
+        if names_disposal(dest, names.maybe) and \
+                not (src is not None and code_source_in_temp(src, names.surely, names.surely_raw)):
             return text[:80].strip()
     return None
 
@@ -5399,7 +5402,7 @@ def check_windows_code(code, shell, env=None):
             continue
         if names is None:
             names = TempNames(text)
-        place = windows_destination_place(dest, names.at(pos)[0])
+        place = windows_destination_place(dest, names.maybe)
         if place:
             raise disposal_block('%s code moving files (%s)' % (shell, statement[:40]), place)
     if WIN_FETCH_RE.search(text) and WIN_RUN_RE.search(text):

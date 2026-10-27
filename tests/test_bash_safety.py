@@ -827,6 +827,11 @@ PUSH_BLOCK = [
      "repo_simple_tracking_main"),
     ("git -c remote.origin.mirror=true push", "repo_upstream_same"),
     ("git push", "repo_mirror"),
+    # the third review (2026-10-27): a URL rewrite from the environment under a matching push; a branch
+    # typed without a destination goes to its upstream under push.default=upstream (measured with git)
+    ("FETCH_URL=/x/fetch.git git --config-env=url./x/push.git.pushInsteadOf=FETCH_URL push",
+     "repo_matching_synced"),
+    ("git push origin feature/x", "repo_upstream_main"),
 ]
 
 PUSH_ALLOW = [
@@ -873,6 +878,15 @@ PUSH_ALLOW = [
     ("git push", "repo_matching_synced"),
     ("git push \"$REMOTE\" feature/x:feature/x", "repo_feature"),
     ("git --config-env=http.extraHeader=AUTH push", "repo_upstream_same"),
+    # a push whose refspecs name their own destination ignores configuration the guard cannot read;
+    # GIT_CONFIG_COUNT=0 adds nothing; a matching push with no local main or master; a typed branch whose
+    # upstream has its own name
+    ("GIT_CONFIG_COUNT=0 git push -u origin feature/x", "repo_feature"),
+    ("git -c include.path=/dev/null push origin HEAD:feature/x", "repo_feature"),
+    ("MODE=current git --config-env=push.default=MODE push origin HEAD:feature/x", "repo_feature"),
+    ("git -c url.ssh://git@github.com/.pushInsteadOf=https://github.com/ -c push.default=matching push",
+     "repo_feature"),
+    ("git push origin feature/x", "repo_upstream_same"),
 ]
 
 
@@ -1852,6 +1866,15 @@ LINUX_DISPOSAL_BLOCK = [
      "shutil.move"),
     ("rclone move old-site /tmp/old-site --dry-run=false", "/tmp/old-site"),
     ("rclone move --dry-run old-site /tmp/old-site --dry-run=false", "/tmp/old-site"),
+    # the third review (2026-10-27): every assignment of a name counts, scopes are not modelled, so an
+    # assignment in an uncalled function hides nothing; a known limitation is that a name reassigned to a
+    # project folder still counts as temporary (docs/safety.md); a source is surely temporary only when
+    # every assignment keeps it there
+    ("python3 - <<'EOF'\nimport tempfile, shutil\nd = tempfile.mkdtemp()\ndef helper():\n    d = 'archive'\n"
+     "shutil.move('report.docx', d)\nEOF", "shutil.move"),
+    ("python3 -c \"import shutil; d = '/tmp/stage'; d = 'archive'; shutil.move('report.docx', d)\"", "shutil.move"),
+    ("python3 - <<'EOF'\nimport tempfile, shutil\nd = '/home/me/proj/old-site'\ndef helper():\n"
+     "    d = tempfile.mkdtemp()\nshutil.move(d, '/tmp/x')\nEOF", "shutil.move"),
 ]
 LINUX_DISPOSAL_ALLOW = [
     "mv a.txt b.txt",
@@ -1909,13 +1932,17 @@ LINUX_DISPOSAL_ALLOW = [
     'mv "$(mktemp -d)/out" /tmp/out',
     "gio trash --restore trash:///old-site",
     "zip -r -m -P secret archive/old.zip old-site",
-    # the second review (2026-10-27): the last assignment wins; a shell word that only starts like a
-    # temporary name; a move within the temporary folder through a name joined from it; a dry run kept on
-    "python3 -c \"import shutil; d = '/tmp/stage'; d = 'archive'; shutil.move('report.docx', d)\"",
+    # the second review (2026-10-27): a shell word that only starts like a temporary name; a move within the
+    # temporary folder through a name joined from it; a dry run kept on
     "python3 -c \"import tempfile, os; d = tempfile.mkdtemp(); os.system('mv a.txt d.txt')\"",
     "python3 -c \"import tempfile, shutil, os; d = tempfile.mkdtemp(); f = os.path.join(d, 'x.docx'); "
     "shutil.move(f, d + '/y.docx')\"",
     "rclone move --dry-run=true old-site /tmp/old-site",
+    # Office editing inside the temporary folder: a path joined on with + or built with % (the third review)
+    "python3 -c \"import tempfile, zipfile, shutil; d = tempfile.mkdtemp(); zipfile.ZipFile('report.docx')"
+    ".extractall(d); src = d + '/word/document.xml'; shutil.move(src, d + '/word/original.xml')\"",
+    "python3 -c \"import tempfile, shutil; d = tempfile.mkdtemp(); src = '%s/word/document.xml' % d; "
+    "shutil.move(src, '%s/word/original.xml' % d)\"",
 ]
 MAC_DISPOSAL_BLOCK = [
     ("mv old-site ~/.Trash/", "~/.trash"),
