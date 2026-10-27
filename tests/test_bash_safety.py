@@ -813,6 +813,20 @@ PUSH_BLOCK = [
     ("git push origin feature/x", "repo_remote_push"),
     ("git push", "repo_matching"),
     ("git checkout -b other origin/main && git push", "repo_upstream_main"),
+    # the second review (2026-10-27): a matching push to a remote with its own pushurl, the only remote when
+    # it is not origin, a remote named by a variable, configuration the guard cannot read, a mirror remote
+    ("git push", "repo_pushurl"),
+    ("git push", "repo_sole_remote"),
+    ("R=origin; git push \"$R\"", "repo_remote_push"),
+    ("git push \"$REMOTE\"", "repo_feature"),
+    ("git push \"$REMOTE\" feature/x", "repo_feature"),
+    ("MODE=upstream git --config-env=push.default=MODE push", "repo_simple_tracking_main"),
+    ("git --config-env push.default=MODE push", "repo_feature"),
+    ("git -c include.path=/nonexistent/push.inc push", "repo_feature"),
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.default GIT_CONFIG_VALUE_0=upstream git push",
+     "repo_simple_tracking_main"),
+    ("git -c remote.origin.mirror=true push", "repo_upstream_same"),
+    ("git push", "repo_mirror"),
 ]
 
 PUSH_ALLOW = [
@@ -854,6 +868,11 @@ PUSH_ALLOW = [
     ("git push origin HEAD", "repo_upstream_main"),
     ("git push origin feature/x:feature/x", "repo_remote_push"),
     ("git checkout -b other && git push", "repo_upstream_same"),
+    # a matching push whose main equals the remote's; a variable remote with a named destination; an
+    # unrelated setting from the environment
+    ("git push", "repo_matching_synced"),
+    ("git push \"$REMOTE\" feature/x:feature/x", "repo_feature"),
+    ("git --config-env=http.extraHeader=AUTH push", "repo_upstream_same"),
 ]
 
 
@@ -929,7 +948,13 @@ class Fixture(object):
                                             ("push.default", "upstream")], False),
                     ("repo_simple_tracking_main", tracking_main, False),
                     ("repo_remote_push", [("remote.origin.push", "refs/heads/feature/x:refs/heads/main")], False),
-                    ("repo_matching", [("push.default", "matching")], True)):
+                    ("repo_matching", [("push.default", "matching")], True),
+                    ("repo_matching_synced", [("push.default", "matching")], True),
+                    ("repo_pushurl", [("push.default", "matching"),
+                                      ("remote.origin.pushurl", "/nonexistent/other.git")], True),
+                    ("repo_sole_remote", [("remote.publish.url", "/nonexistent/publish.git"),
+                                          ("remote.publish.push", "refs/heads/feature/x:refs/heads/main")], False),
+                    ("repo_mirror", [("remote.origin.mirror", "true")], False)):
                 path = os.path.join(self.root, name)
                 subprocess.run(["git", "init", "-q", path], check=True, env=self.env)
                 if commit:                                  # a local main to match
@@ -942,11 +967,15 @@ class Fixture(object):
                 else:
                     subprocess.run(["git", "-C", path, "symbolic-ref", "HEAD", "refs/heads/feature/x"],
                                    check=True, env=self.env)
-                for key, value in [("remote.origin.url", "/nonexistent/remote.git")] + config:
+                origin = [] if name == "repo_sole_remote" else [("remote.origin.url", "/nonexistent/remote.git")]
+                for key, value in origin + config:
                     subprocess.run(["git", "-C", path, "config", "--add", key, value], check=True, env=self.env)
+                if name in ("repo_matching_synced", "repo_pushurl"):    # origin/main as last fetched: equal
+                    subprocess.run(["git", "-C", path, "update-ref", "refs/remotes/origin/main", "refs/heads/main"],
+                                   check=True, env=self.env)
                 self.repos[name] = path
         for name in ("repo_upstream_main", "repo_upstream_same", "repo_simple_tracking_main", "repo_remote_push",
-                     "repo_matching"):
+                     "repo_matching", "repo_matching_synced", "repo_pushurl", "repo_sole_remote", "repo_mirror"):
             self.repos.setdefault(name, os.path.join(self.root, "missing-" + name))
         self.repos.setdefault("repo_main", os.path.join(self.root, "missing-main"))
         self.repos.setdefault("repo_feature", os.path.join(self.root, "missing-feature"))
@@ -1509,6 +1538,14 @@ WIN_BLOCK = [
     ("powershell -c '$d = [IO.Path]::GetTempPath(); Move-Item proj $d'", "temporary folder"),
     ('cmd //c "for /d %f in (*) do move %f %TEMP%"', "temporary folder"),
     ("powershell -c 'Move-Item proj C:\\$Recycle.Bin\\'", "$recycle.bin"),
+    # a move command named through the call operator, a module, a path or a variable, or run from text; a
+    # dry run switched off (the second review, 2026-10-27)
+    ("powershell -c '& \"Move-Item\" proj $env:TEMP'", "temporary folder"),
+    ("powershell -c 'Microsoft.PowerShell.Management\\Move-Item proj $env:TEMP'", "temporary folder"),
+    ("powershell -c '& C:\\Windows\\System32\\Robocopy.exe proj $env:TEMP\\proj /MOVE'", "temporary folder"),
+    ("powershell -c '$c = \"Move-Item\"; & $c proj $env:TEMP'", "temporary folder"),
+    ("powershell -c 'iex \"Move-Item proj $env:TEMP\"'", "temporary folder"),
+    ("powershell -c 'Move-Item proj $env:TEMP -WhatIf:$false'", "temporary folder"),
 ]
 WIN_ALLOW = [
     "cat C:/Users/me/proj/README.md",
@@ -1546,6 +1583,10 @@ WIN_ALLOW = [
     'cmd //c "robocopy proj %TEMP%\\proj /MOVE /L"',
     "powershell -c \"Write-Host 'move proj to $env:TEMP later'\"",
     "mv proj 'C:\\Users\\me\\Documents\\Recycled\\'",
+    # the call operator into the project, printed text that starts like a move, a dry run switched on
+    "powershell -c '& \"Move-Item\" proj archive'",
+    "powershell -c 'Write-Host \"move done to $env:TEMP\"'",
+    "powershell -c 'Move-Item proj $env:TEMP -WhatIf:$true'",
 ]
 
 
@@ -1802,6 +1843,15 @@ LINUX_DISPOSAL_BLOCK = [
      "shutil.move(os.path.join(d, p), d)\"", "shutil.move"),
     ("node -e \"const t = require('os').tmpdir(); require('fs').renameSync('old-site', t + '/x')\"", "renamesync"),
     ("ruby -e 'require \"fileutils\"; FileUtils.mv \"old-site\", \"/tmp/\"'", "fileutils.mv"),
+    # the second review (2026-10-27): a temporary name inside a string literal is text, not the name; a path
+    # joined onto an absolute one leaves the temporary folder; a dry run switched off moves
+    ("python3 -c \"import tempfile, shutil; d = tempfile.mkdtemp(); shutil.move('d.docx', d)\"", "shutil.move"),
+    ("python3 -c \"import tempfile, shutil, os; d = tempfile.mkdtemp(); "
+     "p = os.path.join(d, os.path.abspath('old-site')); shutil.move(p, d)\"", "shutil.move"),
+    ("python3 -c \"import tempfile, shutil; d = tempfile.mkdtemp(); shutil.move('report.docx', f'{d}/r.docx')\"",
+     "shutil.move"),
+    ("rclone move old-site /tmp/old-site --dry-run=false", "/tmp/old-site"),
+    ("rclone move --dry-run old-site /tmp/old-site --dry-run=false", "/tmp/old-site"),
 ]
 LINUX_DISPOSAL_ALLOW = [
     "mv a.txt b.txt",
@@ -1859,6 +1909,13 @@ LINUX_DISPOSAL_ALLOW = [
     'mv "$(mktemp -d)/out" /tmp/out',
     "gio trash --restore trash:///old-site",
     "zip -r -m -P secret archive/old.zip old-site",
+    # the second review (2026-10-27): the last assignment wins; a shell word that only starts like a
+    # temporary name; a move within the temporary folder through a name joined from it; a dry run kept on
+    "python3 -c \"import shutil; d = '/tmp/stage'; d = 'archive'; shutil.move('report.docx', d)\"",
+    "python3 -c \"import tempfile, os; d = tempfile.mkdtemp(); os.system('mv a.txt d.txt')\"",
+    "python3 -c \"import tempfile, shutil, os; d = tempfile.mkdtemp(); f = os.path.join(d, 'x.docx'); "
+    "shutil.move(f, d + '/y.docx')\"",
+    "rclone move --dry-run=true old-site /tmp/old-site",
 ]
 MAC_DISPOSAL_BLOCK = [
     ("mv old-site ~/.Trash/", "~/.trash"),

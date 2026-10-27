@@ -109,14 +109,15 @@ Decisions on bad input (deliberate)
     error and run the call; an entry with "onFailure": "block" (which a plugin's hooks.json can set)
     turns the error into a block.
   - A command the hook cannot analyse (it does not parse, it nests deeper than MAX_NEST or MAX_DEPTH,
-    it is longer than MAX_COMMAND_CHARS, its inline code nests move calls past MAX_SCAN_TOKENS) and
-    any internal error: exit 2, fail closed, with a message
-    asking for simpler commands. The command text is written by the model, so a command must not be
-    able to step around the analysis by being hard to read.
+    it is longer than MAX_COMMAND_CHARS, its inline code nests move calls past MAX_SCAN_TOKENS or assigns
+    a temporary folder to more than MAX_TEMP_NAMES names) and any internal error: exit 2, fail closed,
+    with a message asking for simpler commands. The command text is written by the model, so a command
+    must not be able to step around the analysis by being hard to read.
 
 Output: exit 0 = allow; exit 2 = block, with the reason on stderr (shown to Claude). Python 3.9+,
 standard library only.
 """
+import bisect
 import copy
 import fnmatch
 import glob
@@ -4298,7 +4299,8 @@ def check_mv_disposal(args, cwd):
 def disposal_operand_sets(args, value_short, long_values, long_flags):
     """The operands of an rsync or rclone command as [(operands, dry run)], so an option's value is not
     taken for the destination. An option in neither table is read both ways: once as a flag, once taking
-    the next word as its value (a reading per way, both judged)."""
+    the next word as its value (a reading per way, both judged). A dry run is -n or --dry-run; the last
+    of them wins, and --dry-run=VALUE is a dry run only for a true value (rclone reads 1, t, true)."""
     readings = []
     for unknown_takes_value in (False, True):
         ops, dry, unknown, done, i = [], False, False, False, 0
@@ -4309,8 +4311,11 @@ def disposal_operand_sets(args, value_short, long_values, long_flags):
             elif t == '--':
                 done = True
             elif t.startswith('--'):
-                name, eq, _ = t.partition('=')
-                dry = dry or name == '--dry-run'
+                name, eq, value = t.partition('=')
+                if name == '--dry-run':                     # the last one wins; --dry-run=false moves
+                    dry = value.lower() in ('1', 't', 'true') if eq else True
+                elif name == '--no-dry-run':
+                    dry = False
                 if not eq and i + 1 < len(args) and name not in long_flags:
                     if name in long_values:
                         i += 1
@@ -4324,7 +4329,8 @@ def disposal_operand_sets(args, value_short, long_values, long_flags):
                         if j == len(t) - 1:
                             i += 1                                  # the value is the next word
                         break
-                    dry = dry or t[j] == 'n'
+                    if t[j] == 'n':
+                        dry = True
             i += 1
         readings.append((ops, dry))
         if not unknown:
@@ -4444,6 +4450,7 @@ CODE_ARG_TOKEN_RE = LazyPattern(r'\'(?:[^\'\\\n]|\\.)*\'|"(?:[^"\\\n]|\\.)*"|`(?
 CODE_JOIN_WORDS_RE = LazyPattern(r'\b(?:os\.path\.join|path\.join|joinpath|join|pathlib\.Path|Path|File\.join'
                                  r'|Join-Path|tempfile)\b')
 MAX_CALL_CHARS = 2000
+MAX_TEMP_NAMES = 200           # names one piece of inline code may assign a temporary folder to
 MAX_SCAN_TOKENS = 200000       # tokens read for the arguments of every move in one piece of code, in total
 
 
@@ -4516,13 +4523,46 @@ def _shell_mv_destination(words):
     return (ops[:-1], ops[-1]) if len(ops) >= 2 else (ops, None)
 
 
+def _is_fstring(text, start):
+    """True when the string literal at text[start] is a Python f-string (f'...', rf"...")."""
+    return bool(re.search(r'(?<![\w])[rRbB]?[fF][rRbB]?$', text[max(0, start - 3):start]))
+
+
+def mask_strings(text):
+    """The text with the inside of every string literal blanked (kept at the same length and line count),
+    except what the literal interpolates: f'{d}/x', "$d/x" and "${d}", Ruby "#{d}", JS `${d}/x`. A name
+    inside 'd.docx' is text, not the name d."""
+    if not any(q in text for q in '\'"`'):
+        return text
+    out, last = [], 0
+    for lit in CODE_STRING_RE.finditer(text):
+        s = lit.group(0)
+        quote, body = s[0], s[1:-1]
+        if quote == '`':
+            keep = r'\$\{[^{}\n]*\}|\$[A-Za-z_]\w*'
+        elif quote == '"':
+            keep = r'\$\{[^{}\n]*\}|\$[A-Za-z_][\w:]*|#\{[^{}\n]*\}'
+        else:
+            keep = None
+        if _is_fstring(text, lit.start()):
+            keep = r'\{[^{}\n]*\}' + ('|' + keep if keep else '')
+        chars = ['\n' if ch == '\n' else ' ' for ch in body]
+        if keep:
+            for m in re.finditer(keep, body):
+                chars[m.start():m.end()] = body[m.start():m.end()]
+        out.append(text[last:lit.start()] + quote + ''.join(chars) + s[-1])
+        last = lit.end()
+    out.append(text[last:])
+    return ''.join(out)
+
+
 def code_move_destinations(code):
-    """Every move or rename in inline code, as (text, source expression or None, destination expression or
-    None): calls (shutil.move(a, b), os.rename(a, b), Path(a).rename(b), fs.renameSync(a, b) ...; with two
-    or more arguments the destination is the second, or the one named dst / dest / destination / target;
-    with one argument it is that one, the object the method is called on being the source), Perl's and
-    Ruby's calls without parentheses, and a shell mv inside a string (os.system('mv a b'),
-    subprocess.run(['mv', 'a', 'b']))."""
+    """Every move or rename in inline code, as (position, text, source expression or None, destination
+    expression or None): calls (shutil.move(a, b), os.rename(a, b), Path(a).rename(b), fs.renameSync(a, b)
+    ...; with two or more arguments the destination is the second, or the one named dst / dest /
+    destination / target; with one argument it is that one, the object the method is called on being the
+    source), Perl's and Ruby's calls without parentheses, and a shell mv inside a string (os.system('mv a
+    b'), subprocess.run(['mv', 'a', 'b'])), whose destination stays quoted as the literal was."""
     budget = Budget()
     for m in CODE_MOVE_CALL_RE.finditer(code):
         name = m.group(1).lower()
@@ -4536,69 +4576,103 @@ def code_move_destinations(code):
         named = [re.match(r'(?:dst|dest|destination|target)\s*=(?!=)\s*(.*)$', a, re.S) for a in args]
         named = [n.group(1) for n in named if n]
         if named:
-            yield text, args[0], named[0]
+            yield m.start(), text, args[0], named[0]
         elif len(args) >= 2:
-            yield text, args[0], args[1]
+            yield m.start(), text, args[0], args[1]
         else:
-            yield text, None, args[0]
+            yield m.start(), text, None, args[0]
     for m in CODE_MOVE_BARE_RE.finditer(code):
         args = call_args(code, m.end(), budget, statement=True)
         if len(args) >= 2:
-            yield code[m.start():m.end() + 80].split('\n', 1)[0], args[0], args[1]
+            yield m.start(), code[m.start():m.end() + 80].split('\n', 1)[0], args[0], args[1]
     if 'mv' not in code:
         return
     for m in CODE_MV_LIST_RE.finditer(code):                # subprocess.run(['mv', 'a', '/tmp'])
-        items = [re.sub(r'^([\'"])(.*)\1$', r'\2', a, flags=re.S) for a in call_args(code, m.end(), budget)]
-        sources, dest = _shell_mv_destination(items)
-        yield code[m.start():m.end() + 80].split('\n', 1)[0], None, dest
+        raw = call_args(code, m.end(), budget)
+        items = [re.sub(r'^([\'"])(.*)\1$', r'\2', a, flags=re.S) for a in raw]
+        dest = _shell_mv_destination(items)[1]
+        if dest is not None:
+            dest = raw[len(items) - 1 - items[::-1].index(dest)]   # as written: 'd' is text, d the name
+        yield m.start(), code[m.start():m.end() + 80].split('\n', 1)[0], None, dest
     for lit in CODE_STRING_RE.finditer(code):              # os.system('mv a /tmp'), `mv a /tmp`
         body = lit.group(0)[1:-1][:4000]
         if 'mv' not in body:
             continue
+        quote = ('f' if _is_fstring(code, lit.start()) else '') + lit.group(0)[0]
         for m in SHELL_MV_IN_TEXT_RE.finditer(body):
             try:
                 words = shlex.split(m.group(1))
             except ValueError:
                 words = m.group(1).split()
-            sources, dest = _shell_mv_destination(words)
+            dest = _shell_mv_destination(words)[1]
             if dest is None:                                # 'mv ' + src + ' ' + d: the rest of the line
-                dest = body[m.end():] + code[lit.end():lit.end() + 300].split('\n', 1)[0]
-            yield 'mv ' + m.group(1)[:76], None, dest
+                dest = quote + body[m.end():] + quote[-1] + code[lit.end():lit.end() + 300].split('\n', 1)[0]
+            else:
+                dest = quote + dest + quote[-1]             # a word of the string, not a name in the code
+            yield lit.start(), 'mv ' + m.group(1)[:76], None, dest
 
 
-def code_temp_names(code):
-    """Names inline code assigns a temporary folder to (d = tempfile.mkdtemp(), const t = os.tmpdir(),
-    $d = [IO.Path]::GetTempPath(), `with TemporaryDirectory() as d`, Ruby `Dir.mktmpdir do |d|`, a JS
-    callback `d =>`), and names assigned from those (p = os.path.join(d, 'x')): (patterns that find each
-    name as a whole word, the names)."""
-    raw, patterns = [], []
+class TempNames(object):
+    """The names inline code assigns a temporary folder to, as of a position in the code (the last
+    assignment before it wins: d = '/tmp/x'; d = 'archive' leaves d ordinary). Assignments come from
+    d = tempfile.mkdtemp(), const t = os.tmpdir(), $d = [IO.Path]::GetTempPath(), `with
+    TemporaryDirectory() as d`, Ruby `Dir.mktmpdir do |d|`, a JS callback `d =>`, and names assigned from
+    those (p = os.path.join(d, 'x')). Each is "maybe temporary" when its value names such a place or name
+    (a destination there is judged temporary), and "surely temporary" when the value also stays inside
+    one (code_source_in_temp: p = os.path.join(d, os.path.abspath('x')) is not), which alone lets a
+    source count as already temporary. Only names outside string literals count."""
 
-    def add(name):
-        if name and name not in raw and len(raw) < 50:
-            raw.append(name)
-            patterns.append(re.compile(r'(?<![\w$@])' + re.escape(name) + r'(?!\w)'))
-    for line in code.split('\n'):
-        if TEMP_DIR_MAKER_RE.search(line):
-            for m in CODE_AS_NAME_RE.finditer(line):
-                add(m.group(1) or m.group(2) or m.group(3))
-    for m in CODE_ASSIGN_RE.finditer(code):
-        value = m.group(2)
-        if TEMP_TEXT_RE.search(value) or any(p.search(value) for p in patterns):
-            add(m.group(1))
-    return patterns, raw
+    def __init__(self, code):
+        masked = mask_strings(code)
+        events, offset = [], 0
+        for line in masked.split('\n'):
+            if TEMP_DIR_MAKER_RE.search(line):
+                for m in CODE_AS_NAME_RE.finditer(line):
+                    events.append((offset + m.start(), m.group(1) or m.group(2) or m.group(3), None, None))
+            offset += len(line) + 1
+        for m in CODE_ASSIGN_RE.finditer(masked):
+            events.append((m.start(1), m.group(1), m.start(2), m.end(2)))
+        events.sort(key=lambda e: e[0])
+        self.timeline, self.patterns, state = {}, {}, {}
+        for pos, name, start, end in events:
+            if start is None:
+                may = sure = True
+            else:
+                maybe = [self.patterns[n] for n, (m, _) in state.items() if m]
+                may = bool(TEMP_TEXT_RE.search(code[start:end]) or any(p.search(masked[start:end]) for p in maybe))
+                if not may and name not in self.timeline:
+                    continue                                # an ordinary name that never held one
+                surely = [n for n, (_, s) in state.items() if s]
+                sure = may and code_source_in_temp(code[start:end], [self.patterns[n] for n in surely], surely)
+            if name not in self.timeline:
+                if len(self.timeline) >= MAX_TEMP_NAMES:
+                    raise ParseError('inline code with more temporary folder names than the hook can track')
+                self.timeline[name] = ([], [])
+                self.patterns[name] = re.compile(r'(?<![\w$@])' + re.escape(name) + r'(?!\w)')
+            positions, states = self.timeline[name]
+            if not states or states[-1] != (may, sure):
+                positions.append(pos)
+                states.append((may, sure))
+            state[name] = (may, sure)
+
+    def at(self, pos):
+        """(patterns of the maybe-temporary names, patterns of the surely-temporary names, those names) at a
+        position. A name used before any assignment (a function defined above the code that sets it)
+        counts as maybe temporary when any assignment makes it so."""
+        maybe, surely, raw = [], [], []
+        for name, (positions, states) in self.timeline.items():
+            k = bisect.bisect_left(positions, pos)
+            may, sure = states[k - 1] if k else (any(st[0] for st in states), False)
+            if may:
+                maybe.append(self.patterns[name])
+            if sure:
+                surely.append(self.patterns[name])
+                raw.append(name)
+        return maybe, surely, raw
 
 
-def names_disposal(text, names):
-    """What an expression in inline code names as a temporary folder or a trash, or None: such a place by
-    name (/tmp, $TMPDIR, os.tmpdir(), mkdtemp() ..., see TEMP_TEXT_RE), a name assigned one
-    (code_temp_names), or a quoted absolute path inside one."""
-    m = TEMP_TEXT_RE.search(text)
-    if m:
-        return m.group(0)
-    for pattern in names:
-        found = pattern.search(text)
-        if found:
-            return found.group(0)
+def _quoted_disposal(text):
+    """A quoted absolute path inside a temporary folder or a trash in an expression, for the message."""
     for lit in CODE_STRING_RE.finditer(text):
         body = lit.group(0)[1:-1].replace('\\\\', '\\')
         if body.startswith(('/', '~', '\\')) or DRIVE_RE.match(body):
@@ -4608,13 +4682,30 @@ def names_disposal(text, names):
     return None
 
 
+def names_disposal(text, names):
+    """What an expression in inline code names as a temporary folder or a trash, or None: such a place by
+    name (/tmp, $TMPDIR, os.tmpdir(), mkdtemp() ..., see TEMP_TEXT_RE), a name assigned one (TempNames;
+    found outside string literals only), or a quoted absolute path inside one."""
+    m = TEMP_TEXT_RE.search(text)
+    if m:
+        return m.group(0)
+    if names:
+        masked = mask_strings(text)
+        for pattern in names:
+            found = pattern.search(masked)
+            if found:
+                return found.group(0)
+    return _quoted_disposal(text)
+
+
 def code_source_in_temp(src, names, raw):
-    """True when a move's source expression stays inside a temporary folder: it names one, and nothing in
-    it can lead elsewhere. Only temporary names, relative literals without .. (or absolute ones inside a
-    temporary folder), interpolations of temporary names, and path joining (os.path.join, path.join,
-    Path, /, +) may appear: os.path.join(d, p) passes nothing, because p may be an absolute path, and
-    os.path.join drops d before one."""
-    if not names_disposal(src, names):
+    """True when a move's source expression stays inside a temporary folder: it names one outside string
+    literals (or quotes an absolute path inside one), and nothing in it can lead elsewhere. Only temporary
+    names, relative literals without .. (or absolute ones inside a temporary folder), interpolations of
+    temporary names, and path joining (os.path.join, path.join, Path, /, +) may appear: os.path.join(d, p)
+    passes nothing, because p may be an absolute path, and os.path.join drops d before one."""
+    masked = mask_strings(src)
+    if not (TEMP_TEXT_RE.search(masked) or any(p.search(masked) for p in names) or _quoted_disposal(src)):
         return False
     for lit in CODE_STRING_RE.finditer(src):
         body = lit.group(0)[1:-1]
@@ -4638,13 +4729,14 @@ def code_moves_to_disposal(code):
     """The text of a move or rename in inline code whose DESTINATION names a temporary folder or a trash,
     or None (code_move_destinations, names_disposal). A move out of a temporary folder passes, and so does
     a move that stays inside one (code_source_in_temp)."""
-    names = raw = None
-    for text, src, dest in code_move_destinations(code):
+    names = None
+    for pos, text, src, dest in code_move_destinations(code):
         if dest is None:
             continue
         if names is None:
-            names, raw = code_temp_names(code)
-        if names_disposal(dest, names) and not (src is not None and code_source_in_temp(src, names, raw)):
+            names = TempNames(code)
+        maybe, surely, raw = names.at(pos)
+        if names_disposal(dest, maybe) and not (src is not None and code_source_in_temp(src, surely, raw)):
             return text[:80].strip()
     return None
 
@@ -4680,7 +4772,7 @@ def _windows_move_target(command, words, piped):
                 dest = value if colon else (words[i + 1] if i + 1 < len(words) else None)
                 i += 0 if colon else 1
             elif n == 'wi' or (len(n) > 1 and 'whatif'.startswith(n)):
-                dry = dry or value.lower() not in ('$false', '0')
+                dry = not colon or value.lower() in ('$true', '1')     # -WhatIf:$false runs
             elif any(p.startswith(n) for p in PS_MOVE_VALUE_PARAMS) and \
                     not any(p.startswith(n) for p in PS_MOVE_SWITCHES):
                 i += 0 if colon else 1
@@ -4692,12 +4784,28 @@ def _windows_move_target(command, words, piped):
     return dest, dry
 
 
-def windows_moves(text):
-    """Every move in cmd or PowerShell text as (statement text, destination text or None, dry run). A move
-    command counts where a command starts: at the start, after ; | & { } ( or a line end, and after cmd's
-    do, else, then or `if [not] exist X`. Quoted strings stay one token, so 'move on' in a string is not
-    a move."""
-    tokens = [m.group(0) for m in WIN_STATEMENT_TOKEN_RE.finditer(text)]
+def _win_command_name(tok, assigned):
+    """The command a cmd or PowerShell command word runs, lower case: a quoted name (& "Move-Item"), a
+    module-qualified cmdlet (Microsoft.PowerShell.Management\\Move-Item), a path (C:\\Windows\\System32\\
+    Robocopy.exe), or a variable assigned a literal name ($c = 'Move-Item'; & $c)."""
+    if tok[:1] in '\'"':
+        tok = tok.strip('\'"')
+    elif tok[:1] == '$':
+        tok = assigned.get(tok.lower(), '')
+    return re.sub(r'\.exe$', '', re.split(r'[\\/]', tok)[-1].lower())
+
+
+def windows_moves(text, depth=0):
+    """Every move in cmd or PowerShell text as (position, statement text, destination text or None, dry
+    run). A move command counts where a command starts: at the start, after ; | & { } ( or a line end
+    (& is also PowerShell's call operator), after the dot-source operator or cmd's call, and after cmd's
+    do, else, then or `if [not] exist X`. Quoted strings stay one token, so 'move on' in a string is not a
+    move, except a string handed to something that runs it as a command (iex "Move-Item ...", cmd /c
+    "move ...", powershell -c "..."), which is read the same way."""
+    found = list(WIN_STATEMENT_TOKEN_RE.finditer(text))
+    tokens = [m.group(0) for m in found]
+    assigned = {m.group(1).lower(): m.group(3) for m in re.finditer(
+        r'(?<![\w$])(\$[A-Za-z_]\w*)\s*=\s*([\'"])([^\'"\n]{1,80})\2', text)} if '$' in text else {}
     starts, start, piped = [], True, False
     k = 0
     while k < len(tokens):
@@ -4710,7 +4818,7 @@ def windows_moves(text):
             k += 1
             continue
         low = tok.lower()
-        if low in ('do', 'else', 'then'):                       # cmd: for ... do move, if ... else move
+        if low in ('do', 'else', 'then') or (start and low in ('.', 'call')):   # for ... do move, call move
             start = True
             k += 1
             continue
@@ -4722,22 +4830,24 @@ def windows_moves(text):
             if names[:1] == ['exist'] and len(words) > 1:
                 k = words[1] + 1
                 continue
-        if start and re.sub(r'\.exe$', '', low) in WIN_MOVE_COMMANDS:
-            starts.append((k, re.sub(r'\.exe$', '', low), piped))
+        if start:
+            command = _win_command_name(tok, assigned)
+            if command in WIN_MOVE_COMMANDS:
+                starts.append((k, command, piped))
         start = False
         k += 1
     out, budget = [], Budget()
     for k, command, piped in starts:
-        words, buf, depth = [], [], 0
+        words, buf, depth_ = [], [], 0
         for tok in tokens[k + 1:k + 400]:
             budget.spend()
-            if depth == 0 and tok in (';', '|', '&', '\n', '}', ')'):
+            if depth_ == 0 and tok in (';', '|', '&', '\n', '}', ')'):
                 break
             if tok == '(':
-                depth += 1
+                depth_ += 1
             elif tok == ')':
-                depth -= 1
-            if depth == 0 and not tok.strip(' \t\r\f\v'):
+                depth_ -= 1
+            if depth_ == 0 and not tok.strip(' \t\r\f\v'):
                 if buf:
                     words.append(''.join(buf))
                     buf = []
@@ -4746,8 +4856,33 @@ def windows_moves(text):
         if buf:
             words.append(''.join(buf))
         dest, dry = _windows_move_target(command, words, piped)
-        out.append(('%s %s' % (tokens[k], ' '.join(words)), dest, dry))
+        out.append((found[k].start(), '%s %s' % (tokens[k], ' '.join(words)), dest, dry))
+    if depth == 0:
+        for j, tok in enumerate(tokens):
+            if tok[:1] not in '\'"' or len(tok) < 4 or not _runs_text(tokens, j, assigned):
+                continue
+            body = tok[1:-1] if len(tok) > 1 and tok[-1] == tok[0] else tok[1:]
+            body = body.replace("''", "'") if tok[0] == "'" else body
+            for pos, statement, dest, dry in windows_moves(body, depth + 1):
+                out.append((found[j].start() + 1 + pos, statement, dest, dry))
     return out
+
+
+WIN_RUNS_TEXT = {'invoke-expression', 'iex', 'cmd', 'powershell', 'pwsh', 'invoke-command', 'icm'}
+
+
+def _runs_text(tokens, j, assigned):
+    """True when the quoted token at tokens[j] is handed to a command that runs text: the nearest earlier
+    word that is not a switch (/c, -Command, -NoProfile) is iex, Invoke-Expression, cmd, powershell or
+    pwsh."""
+    for k in range(j - 1, max(-1, j - 12), -1):
+        tok = tokens[k]
+        if not tok.strip(' \t\r\f\v'):
+            continue
+        if tok[:1] in '-/' and len(tok) > 1:
+            continue
+        return _win_command_name(tok, assigned) in WIN_RUNS_TEXT
+    return False
 
 
 def windows_destination_place(dest, names):
@@ -5259,12 +5394,12 @@ def check_windows_code(code, shell, env=None):
     if 'nircmd' in text.lower() and nircmd_recycles(text):
         raise disposal_block('%s code sending files (nircmd moverecyclebin)' % shell, 'the Recycle Bin')
     names = None
-    for statement, dest, dry in windows_moves(text):           # %TEMP% and $env:TEMP expanded above
+    for pos, statement, dest, dry in windows_moves(text):      # %TEMP% and $env:TEMP expanded above
         if dest is None or dry:
             continue
         if names is None:
-            names = code_temp_names(text)[0]
-        place = windows_destination_place(dest, names)
+            names = TempNames(text)
+        place = windows_destination_place(dest, names.at(pos)[0])
         if place:
             raise disposal_block('%s code moving files (%s)' % (shell, statement[:40]), place)
     if WIN_FETCH_RE.search(text) and WIN_RUN_RE.search(text):
