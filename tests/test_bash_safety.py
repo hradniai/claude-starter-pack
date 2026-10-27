@@ -1935,6 +1935,10 @@ class DisposalMoveTests(unittest.TestCase):
         hook = load_hook_as("linux", env={"HOME": "/home/me", "TMPDIR": "/scratch/me-tmp"})
         env = {"HOME": "/home/me", "TMPDIR": "/scratch/me-tmp"}
         self.assertEqual(self.outcome(hook, env, "mv old-site /scratch/me-tmp/x", "/home/me/proj")[0], "block")
+        # a source that starts with $TMPDIR but climbs out of it is the project folder, not a temporary file
+        self.assertEqual(self.outcome(hook, env, "mv $TMPDIR/../../home/me/proj/old-site /tmp/",
+                                      "/home/me/proj")[0], "block")
+        self.assertEqual(self.outcome(hook, env, "mv $TMPDIR/old-site /tmp/", "/home/me/proj"), ("allow", ""))
         for tmpdir in ("/home/me", "/"):
             hook = load_hook_as("linux", env={"HOME": "/home/me", "TMPDIR": tmpdir})
             env = {"HOME": "/home/me", "TMPDIR": tmpdir}
