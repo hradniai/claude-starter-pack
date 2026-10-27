@@ -37,8 +37,9 @@ so a user who works trunk-based can remove this one hook without weakening the r
 Windows (Git Bash): `git.exe` and `GIT` count as git (and so on macOS, whose file system ignores case
 too), and a `cd /c/Users/me/repo` is followed to C:/Users/me/repo before git is asked for the branch.
 
-Exit 0 = allow, exit 2 = block (reason on stderr). Unreadable payload: exit 1 (non-blocking notice).
-Python 3.9+, standard library only.
+Exit 0 = allow, exit 2 = block (reason on stderr). Unreadable payload: exit 1, a hook error rather than a
+block of its own; a plain settings.json entry then runs the call, an entry with "onFailure": "block" (which
+a plugin's hooks.json can set) blocks it. Python 3.9+, standard library only.
 """
 import fnmatch
 import json
