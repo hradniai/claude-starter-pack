@@ -14,6 +14,10 @@ that would update main or master on the remote, wherever it sits in the command:
   git push origin 'refs/heads/*:refs/heads/*'   (a wildcard that can update main)
   git switch main && git push        (after a branch change the pushed branch cannot be told, so a
                                      bare push or HEAD counts as main; a newly created branch is known)
+  git push / git push origin         on a feature branch whose configured destination is main/master:
+                                     its upstream under push.default=upstream (also git -c), a
+                                     remote.<name>.push refspec, or push.default=matching with a local
+                                     main/master that differs from the remote's
 
 It also looks inside if / then / loops, && chains, $( ), backticks, bash -c and eval. It stays quiet
 on branch names that only contain the word (feature/main-menu, maintenance, main-fix), on tags
@@ -21,7 +25,11 @@ on branch names that only contain the word (feature/main-menu, maintenance, main
 substituted; one whose value cannot be known is judged as HEAD. A bare push is judged by the branch
 checked out in the directory the push runs in (git -C, or a cd earlier in the same command, or the
 hook payload's cwd), read with `git symbolic-ref`; outside a repository the push would fail anyway,
-so it passes.
+so it passes. Where it goes is resolved the way git resolves it (implicit_destinations): the push
+remote (branch.<b>.pushRemote, remote.pushDefault, branch.<b>.remote, origin), then that remote's
+remote.<name>.push refspecs, else push.default (simple when unset); a destination that cannot be
+established blocks. A refspec without a destination (git push origin feature) maps through
+remote.<name>.push as git does. A feature branch pushed to its own same-named upstream passes.
 
 Kept separate from bash-safety-extended.py on purpose: it is a workflow rule, not a safety boundary,
 so a user who works trunk-based can remove this one hook without weakening the rest.
@@ -144,12 +152,14 @@ def is_redirect(tok):
 
 
 class State(object):
-    """What earlier commands in the same line changed: literal variables, and the branch a
-    `git switch` / `git checkout` left checked out per directory (UNKNOWN when it cannot be told)."""
+    """What earlier commands in the same line changed: literal variables, the branch a `git switch` /
+    `git checkout` left checked out per directory (UNKNOWN when it cannot be told), and the directories
+    whose new branch was created from a start point (its upstream may then be set: autoSetupMerge)."""
 
     def __init__(self):
         self.vars = {}
         self.branch = {}
+        self.started = set()
 
 
 def simple_commands(command, cwd, state, depth=0):
@@ -216,6 +226,11 @@ def record_branch_change(argv, cwd, state):
     for k, a in enumerate(args):
         if a in ('-b', '-B', '-c', '-C', '--create', '--force-create', '--orphan') and k + 1 < len(args):
             state.branch[directory] = args[k + 1]
+            start_point = [x for x in args[k + 2:] if not x.startswith('-')]
+            if start_point or any(x in ('-t', '--track') or x.startswith('--track=') for x in args):
+                state.started.add(directory)
+            else:
+                state.started.discard(directory)
             return
     positional = [a for a in args if not a.startswith('-')]
     if positional:
@@ -258,6 +273,130 @@ def current_branch(directory):
     except (OSError, subprocess.SubprocessError):
         return None
     return r.stdout.strip() if r.returncode == 0 else None
+
+
+def git_overrides(argv):
+    """git -c name=value settings before the subcommand, as [(name, value)]."""
+    out, i = [], 1
+    while i < len(argv) and argv[i].startswith('-'):
+        if argv[i] == '-c' and i + 1 < len(argv):
+            name, _, value = argv[i + 1].partition('=')
+            out.append((name, value))
+            i += 2
+        elif argv[i] in ('-C', '--git-dir', '--work-tree', '--namespace', '--config-env') and i + 1 < len(argv):
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def config_key(name):
+    """A configuration name the way git compares it: section and variable in lower case, a subsection
+    (a branch or remote name) as written."""
+    first, _, rest = name.partition('.')
+    middle, _, last = rest.rpartition('.')
+    return '.'.join(p for p in (first.lower(), middle, last.lower()) if p)
+
+
+def git_config(directory, overrides):
+    """The configuration git uses in a directory, as {name: [values]}, with git -c settings on top; {}
+    when git cannot run (the push cannot run either)."""
+    config = {}
+    try:
+        r = subprocess.run(['git', '-C', directory, 'config', '-z', '--list'], capture_output=True, timeout=5)
+        listing = r.stdout.decode('utf-8', 'replace') if r.returncode == 0 else ''
+    except (OSError, subprocess.SubprocessError):
+        listing = ''
+    for entry in listing.split('\0'):
+        name, sep, value = entry.partition('\n')
+        if name:
+            config.setdefault(config_key(name), []).append(value if sep else 'true')
+    for name, value in overrides:
+        config.setdefault(config_key(name), []).append(value)
+    return config
+
+
+def config_value(config, name):
+    values = config.get(config_key(name))
+    return values[-1] if values else None
+
+
+def matching_target(directory, remote):
+    """The protected branch a push of matching branches can update: a local main or master that differs
+    from (or has no) remote-tracking copy, or None."""
+    refs = ['refs/heads/%s' % p for p in PROTECTED] + ['refs/remotes/%s/%s' % (remote, p) for p in PROTECTED]
+    try:
+        r = subprocess.run(['git', '-C', directory, 'for-each-ref', '--format=%(refname) %(objectname)'] + refs,
+                           capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    found = dict(line.split(' ', 1) for line in r.stdout.splitlines() if ' ' in line)
+    for name in PROTECTED:
+        local = found.get('refs/heads/' + name)
+        if local and local != found.get('refs/remotes/%s/%s' % (remote, name)):
+            return name
+    return None
+
+
+def push_remote(config, branch, remote):
+    """The remote a push goes to: the one named on the command line, else branch.<b>.pushRemote,
+    remote.pushDefault, branch.<b>.remote, origin."""
+    if remote:
+        return remote
+    for name in ('branch.%s.pushRemote' % branch if branch else None, 'remote.pushDefault',
+                 'branch.%s.remote' % branch if branch else None):
+        value = config_value(config, name) if name else None
+        if value:
+            return value
+    return 'origin'
+
+
+def implicit_destinations(config, branch, remote, started):
+    """What a git push without refspecs pushes, as refspecs to judge like typed ones ([] when git
+    refuses to push or pushes nothing), or a reason string when it cannot be established. The remote's
+    remote.<name>.push refspecs come first; else push.default: current and simple (the default) push the
+    branch to its own name (simple refuses an upstream of another name), upstream / tracking to its
+    upstream, matching every branch that exists on both sides (':'), nothing nothing."""
+    configured = config.get(config_key('remote.%s.push' % remote))
+    if configured:
+        return list(configured)
+    if not branch:
+        return []                                       # detached HEAD: git asks for a refspec
+    mode = (config_value(config, 'push.default') or 'simple').lower()
+    if mode in ('current', 'simple'):
+        return [branch]
+    if mode in ('upstream', 'tracking'):
+        if started:
+            return 'a bare git push of a branch just created from a start point, whose upstream cannot be told'
+        merge = config_value(config, 'branch.%s.merge' % branch)
+        if not merge or config_value(config, 'branch.%s.remote' % branch) != remote:
+            return []                                   # git refuses: no upstream, or another remote
+        return ['%s:%s' % (branch, merge)]
+    if mode == 'matching':
+        return [':']
+    if mode == 'nothing':
+        return []
+    return 'a bare git push with push.default=%s, whose destination cannot be told' % mode
+
+
+def mapped_destination(src, branch, configured):
+    """Where remote.<name>.push sends a refspec typed without a destination (git push origin feature),
+    or None when no configured refspec covers it (it then goes to the same name)."""
+    names = {src, 'refs/heads/' + src}
+    if is_head(src) and branch:
+        names |= {branch, 'refs/heads/' + branch, 'HEAD'}
+    for spec in configured:
+        csrc, colon, cdst = spec.lstrip('+').partition(':')
+        if not colon:
+            continue
+        if csrc in names or (csrc == 'HEAD' and branch and src in (branch, 'refs/heads/' + branch)):
+            return cdst
+        if '*' in csrc:
+            for name in names:
+                if name.startswith('refs/') and fnmatch.fnmatchcase(name, csrc):
+                    head, _, tail = csrc.partition('*')
+                    return cdst.replace('*', name[len(head):len(name) - len(tail)], 1)
+    return None
 
 
 def git_subcommand(argv, cwd):
@@ -310,13 +449,13 @@ def check_push(argv, cwd, state):
     if sub != 'push':
         return None
     positional, deleting, dry_run, every, tags = [], False, False, None, False
-    remote_given = False                       # --repo names the remote, so every operand is a refspec
+    remote_given = None                        # --repo names the remote, so every operand is a refspec
     j = 0
     while j < len(args):
         a = args[j]
         name = a.split('=', 1)[0]
         if name.startswith('--rep') and '--repo'.startswith(name):
-            remote_given = True
+            remote_given = a.split('=', 1)[1] if '=' in a else (args[j + 1] if j + 1 < len(args) else '')
             if '=' not in a:
                 j += 1
         elif a in ('--all', '--mirror', '--branches'):
@@ -338,7 +477,7 @@ def check_push(argv, cwd, state):
         return None
     if every:
         return 'git push %s pushes every branch, main/master included' % every
-    refspecs, k = [], 0 if remote_given else 1
+    refspecs, k = [], 0 if remote_given is not None else 1
     while k < len(positional):
         if positional[k] == 'tag' and k + 1 < len(positional):
             k += 2                                              # `tag <name>` pushes refs/tags/<name>
@@ -352,28 +491,63 @@ def check_push(argv, cwd, state):
             branch = current_branch(directory)
         return branch
 
-    for spec in refspecs:
-        resolved = substitute(spec, state)
-        spec = resolved if resolved is not None else 'HEAD'    # an unknown $VAR or $( ): judged as HEAD
-        spec = spec.lstrip('+')
-        src, colon, dst = spec.partition(':')
-        if not colon:
-            dst = src
-        if is_head(dst):
-            branch = checked_out()
-            if branch is UNKNOWN or branch in PROTECTED:
-                return 'git push of HEAD while %s is checked out' % (
-                    'main/master or an unknown branch' if branch is UNKNOWN else branch)
-            continue
-        target = protected_target(dst)
-        if target:
-            return 'git push %s %s' % ('--delete of' if deleting else 'to', target)
-    if not refspecs and not tags:
-        branch = checked_out()
-        if branch is UNKNOWN:
-            return 'a bare git push right after a branch change, when the branch it pushes cannot be told'
-        if branch in PROTECTED:
-            return 'a bare git push while %s is checked out' % branch
+    remote = remote_given if remote_given is not None else (positional[0] if positional else None)
+    config = []                                 # read once, on first need
+
+    def configuration():
+        if not config:
+            config.append(git_config(directory, git_overrides(argv)))
+        return config[0]
+
+    def judge(specs, typed):
+        for spec in specs:
+            resolved = substitute(spec, state)
+            spec = resolved if resolved is not None else 'HEAD'    # an unknown $VAR or $( ): judged as HEAD
+            spec = spec.lstrip('+')
+            src, colon, dst = spec.partition(':')
+            if not colon:
+                dst = src
+                if typed and src:                       # remote.<name>.push can send it elsewhere
+                    branch = checked_out() if is_head(src) else None
+                    branch = branch if isinstance(branch, str) else None
+                    configured = configuration().get(
+                        config_key('remote.%s.push' % push_remote(configuration(), branch, remote)))
+                    mapped = mapped_destination(src, branch, configured or [])
+                    if mapped is not None:
+                        dst = mapped
+            if colon and not src and not dst:           # ':' pushes matching branches
+                target = matching_target(directory, push_remote(configuration(), None, remote))
+                if target:
+                    return 'git push of matching branches, which updates %s on the remote' % target
+                continue
+            if is_head(dst):
+                branch = checked_out()
+                if branch is UNKNOWN or branch in PROTECTED:
+                    return 'git push of HEAD while %s is checked out' % (
+                        'main/master or an unknown branch' if branch is UNKNOWN else branch)
+                continue
+            target = protected_target(dst)
+            if target:
+                return 'git push %s %s' % ('--delete of' if deleting else 'to', target)
+        return None
+
+    reason = judge(refspecs, True)
+    if reason or refspecs or tags:
+        return reason
+    branch = checked_out()
+    if branch is UNKNOWN:
+        return 'a bare git push right after a branch change, when the branch it pushes cannot be told'
+    if branch in PROTECTED:
+        return 'a bare git push while %s is checked out' % branch
+    if branch is None and not configuration():
+        return None                                     # not a repository: the push fails anyway
+    target_remote = push_remote(configuration(), branch, remote)
+    specs = implicit_destinations(configuration(), branch, target_remote, directory in state.started)
+    if isinstance(specs, str):
+        return specs
+    reason = judge(specs, False)
+    if reason:
+        return 'a bare git push whose configured destination is main/master (%s)' % reason
     return None
 
 

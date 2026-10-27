@@ -31,14 +31,18 @@ against the directory the command will really run in, and blocks a short list of
                   rclone move, rename, or an archive that removes its sources (tar --remove-files,
                   zip -m, 7z -sdel) into a temporary folder (/tmp, /var/tmp, $TMPDIR and macOS'
                   /var/folders, %TEMP% and C:\\Windows\\Temp) or the trash (~/.Trash, the freedesktop
-                  Trash, .Trashes, .Trash-<uid>, $Recycle.Bin); a destination made by mktemp or named
-                  by $TMPDIR / $TMP / $TEMP counts even when the variable is unset; trash commands
-                  (trash, trash-put, gio trash, gvfs-trash, kioclient move ... trash:/, nircmd
-                  moverecyclebin); and inline code doing the same (shutil.move / os.rename /
-                  fs.renameSync into a temporary folder, send2trash, Finder delete through osascript,
-                  PowerShell Move-Item or robocopy /MOV into %TEMP%, SendToRecycleBin,
-                  Remove-ItemSafely, the Recycle Bin shell namespace). Moves inside the project, and
-                  moves of files that are already in a temporary folder or the trash, pass
+                  Trash, .Trashes, .Trash-<uid>, $Recycle.Bin / Recycler / Recycled at a drive root); a
+                  destination made by mktemp (also /usr/bin/mktemp, env mktemp) or named by $TMPDIR /
+                  $TMP / $TEMP counts even when the variable is unset; trash commands (trash,
+                  trash-put, gio trash, gvfs-trash, kioclient move ... trash:/, nircmd
+                  moverecyclebin); and inline code doing the same, judged by the destination argument
+                  of the call (shutil.move / os.rename / fs.renameSync into a temporary folder or a
+                  name assigned one, a shell mv inside a string, send2trash, Finder delete through
+                  osascript, PowerShell Move-Item or robocopy /MOV into %TEMP%, SendToRecycleBin,
+                  Remove-ItemSafely, the Recycle Bin shell namespace). Moves inside the project, moves
+                  out of a temporary folder, moves of files already in one (a source whose expanded
+                  path lies there, or a folder mktemp made in the same command) and dry runs (rsync -n,
+                  rclone --dry-run, Move-Item -WhatIf, robocopy /L) pass
   whole-disk      a recursive search (grep -r, rg, ag, ack, the Grep tool) over /, a Windows drive,
   searches        the home folder or a folder above it, in any output mode (it reads every file)
   unread code     curl/wget output (or base64 -d / xxd -r output) piped into a shell or interpreter,
@@ -99,11 +103,14 @@ How paths are judged
     folder that holds one at its top level (tar -c, zip -r, 7z a) without an exclude that covers it.
 
 Decisions on bad input (deliberate)
-  - Unreadable hook payload (not JSON): exit 1, a non-blocking error Claude Code shows to the user;
-    the call runs. The payload comes from Claude Code, not from the model, so failing closed would
-    only brick every call after an upgrade, and the visible notice still says the check is off.
+  - Unreadable hook payload (not JSON): exit 1, a hook error rather than a block of its own. The
+    payload comes from Claude Code, not from the model, so the hook does not treat it as an attack.
+    What happens next is the hook entry's choice: a plain settings.json entry lets Claude Code show the
+    error and run the call; an entry with "onFailure": "block" (which a plugin's hooks.json can set)
+    turns the error into a block.
   - A command the hook cannot analyse (it does not parse, it nests deeper than MAX_NEST or MAX_DEPTH,
-    it is longer than MAX_COMMAND_CHARS) and any internal error: exit 2, fail closed, with a message
+    it is longer than MAX_COMMAND_CHARS, its inline code nests move calls past MAX_SCAN_TOKENS) and
+    any internal error: exit 2, fail closed, with a message
     asking for simpler commands. The command text is written by the model, so a command must not be
     able to step around the analysis by being hard to read.
 
@@ -118,6 +125,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import sys
 
 SENT = '\x00'          # stands in for any part of a word whose value cannot be known
@@ -315,46 +323,129 @@ TEMP_TEXT_RE = LazyPattern(
     r'|\b(?:environ(?:\.get)?\s*[\[(]|getenv\s*\(|ENV\s*\[|process\.env\.?\[?)\s*[\'"]?(?:TMPDIR|TMP|TEMP)\b'
     r'|\bgettempdir\b|\bmkdtemp\w*|\bTemporaryDirectory\b|\btmpdir\s*\(|\bos\.tmpdir\b|\bDir\.(?:tmpdir|mktmpdir)\b'
     r'|\bsys_get_temp_dir\b|\bGetTempPath\b|\bFile::Temp\b|\btempdir\s*\('
-    r'|(?<![\w-])\.Trash(?:es|-\d+)?(?![\w-])|\.local[/\\]+share[/\\]+Trash\b|\$Recycle\.Bin|\bRECYCLER\b',
+    r'|(?<![\w-])\.Trash(?:es|-\d+)?(?![\w-])|\.local[/\\]+share[/\\]+Trash\b'
+    r'|(?<![\w.$-])(?:[A-Za-z]:)?[/\\]+(?:\$Recycle\.Bin|RECYCLER|RECYCLED)(?![\w.-])',
     re.IGNORECASE)
 TEMP_DIR_MAKER_RE = LazyPattern(
     r'\bgettempdir\b|\bmkdtemp\w*|\bTemporaryDirectory\b|\btmpdir\s*\(|\bos\.tmpdir\b|\bDir\.(?:tmpdir|mktmpdir)\b'
     r'|\bsys_get_temp_dir\b|\bGetTempPath\b|\bFile::Temp\b|\btempdir\s*\(')
-# A move or rename in inline code (Python, Node, Ruby, Perl, PHP, cmd, PowerShell). `replace` alone is left
-# out (it is mostly a string method); os.replace is in.
-CODE_MOVE_RE = LazyPattern(
-    r'\b(?:shutil\.move|os\.renames?|os\.replace|renameSync|renameAsync|moveSync|moveAsync|FileUtils\.(?:mv|move)'
-    r'|Move-Item|MoveTo|MoveFile|MoveDirectory|rename|move|mv|mi)\b')
+# A move or rename CALL in inline code (Python, Node, Deno, Ruby, Perl, PHP, Java, .NET), judged by its
+# destination argument (see code_move_destinations): shutil.move, os.rename / renames / replace,
+# Path.rename / replace, fs.rename(Sync), fs-extra move(Sync), FileUtils.mv, File.rename, File.Move,
+# Directory.Move, FileInfo.MoveTo. A bare word (print('move on')) is not a call.
+CODE_MOVE_CALL_RE = LazyPattern(
+    r'(?<![\w$-])(move|moveSync|moveAsync|move_file|rename|renames|renameSync|renameAsync|replace|mv|MoveTo'
+    r'|MoveFile|MoveDirectory)\s*\(', re.IGNORECASE)
+# Perl's rename and Ruby's FileUtils.mv / File.rename also work without parentheses: rename "a", "/tmp/b".
+CODE_MOVE_BARE_RE = LazyPattern(r'(?<![\w$.-])(rename|FileUtils\.(?:mv|move)|File\.rename)[ \t]+(?=["\'$])')
+# A shell mv inside a string of inline code: os.system('mv a /tmp'), subprocess.run(['mv', 'a', '/tmp']).
+CODE_STRING_RE = LazyPattern(r'\'(?:[^\'\\\n]|\\.)*\'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`')
+SHELL_MV_IN_TEXT_RE = LazyPattern(r'(?:^|[;&|(]\s*)(?:sudo\s+|command\s+|env\s+)*(?:[\w./]*/)?g?mv\s+([^;&|)]*)')
+CODE_MV_LIST_RE = LazyPattern(r'[\[(]\s*([\'"])(?:[\w./]*/)?g?mv\1\s*,')
+# A name assigned a temporary folder in inline code: d = tempfile.mkdtemp(), const t = os.tmpdir(),
+# $d = [IO.Path]::GetTempPath(); `with TemporaryDirectory() as d`, Ruby `Dir.mktmpdir do |d|`, JS `d =>`.
+CODE_ASSIGN_RE = LazyPattern(r'(?<![\w$@.])([$@]?[A-Za-z_][\w.]*)\s*(?::=|=)(?![=~>])\s*([^\n;]*)')
+CODE_AS_NAME_RE = LazyPattern(r'\bas\s+([A-Za-z_]\w*)|\|\s*([A-Za-z_]\w*)\s*\||\b([A-Za-z_]\w*)\s*\)?\s*=>')
 # Sending to the trash, in inline code: Python send2trash, macOS trashItem / recycleURLs, Electron
-# shell.trashItem, the npm trash package, Finder or System Events delete through AppleScript or JXA, a
-# trash command run through subprocess.
+# shell.trashItem, the npm trash package, Finder's delete (which moves to the trash) and System Events'
+# delete through AppleScript (tell application / app / application id) or JXA, a trash command run
+# through subprocess. A Finder move is judged by where it goes: `move ... to trash` only.
 TEXT_TRASH_RE = LazyPattern(
     r'\bsend2trash\b|\btrashItem(?:AtURL)?\b|\brecycleURLs\b|\bmove_?to_?trash\b'
-    r'|\btell\s+application\s+["\'](?:Finder|System Events)["\'][\s\S]{0,400}?\b(?:delete|move)\b'
-    r'|Application\(\s*["\'](?:Finder|System Events)["\']\s*\)\s*\.\s*delete\b'
+    r'|\btell\s+(?:application|app)\s+(?:id\s+)?["\'](?:Finder|System Events|com\.apple\.finder'
+    r'|com\.apple\.systemevents)["\'][\s\S]{0,400}?\bdelete\b'
+    r'|Application\(\s*["\'](?:Finder|System Events|com\.apple\.finder|com\.apple\.systemevents)["\']\s*\)'
+    r'\s*\.\s*delete\b'
     r'|\bmove\b[^\n]{0,200}?\bto\s+(?:the\s+)?trash\b'
     r'|[\[(,]\s*["\'](?:trash|trash-put|trash-rm|trash-empty|gtrash|rmtrash|gvfs-trash)["\']'
     r'|["\']gio["\']\s*,\s*["\']trash["\']'
     r'|\b(?:require|import)\s*\(\s*["\']trash["\']\s*\)|\bfrom\s+["\']trash["\']',
     re.IGNORECASE)
+TELL_APP_RE = LazyPattern(r'\btell\s+(?:application|app)\s+(?:id\s+)?["\']([^"\'\n]{1,60})["\']', re.IGNORECASE)
 # The same in cmd or PowerShell: the VisualBasic FileSystem SendToRecycleBin option, Remove-ItemSafely (the
-# Recycle module), the Recycle Bin shell namespace (10, 0xA, ssfBITBUCKET), nircmd moverecyclebin.
+# Recycle module), the Recycle Bin shell namespace (10, 0xA, ssfBITBUCKET). nircmd moverecyclebin is found
+# per statement (nircmd_recycles), which keeps the scan linear on long text.
 WIN_TRASH_RE = LazyPattern(
     r'\bSendToRecycleBin\b|\bRemove-ItemSafely\b|\bNamespace\s*\(\s*(?:10|0x0*a|ssfBITBUCKET)\s*\)|\bssfBITBUCKET\b'
-    r'|shell:RecycleBinFolder|\bnircmd(?:\.exe)?\b[^\n;|&]*\bmoverecyclebin\b',
+    r'|shell:RecycleBinFolder',
     re.IGNORECASE)
-# A move in cmd or PowerShell: Move-Item and its aliases mi, mv and move, cmd's move, robocopy /MOV or
-# /MOVE, and the .NET File / Directory Move methods.
-WIN_MOVE_RE = LazyPattern(
-    r'\b(?:Move-Item|mi|mv|move)\b|\brobocopy\b[^\n;|&]*?\s/MOVE?(?![\w])|::Move(?:File|Directory)?\s*\(|\.MoveTo\s*\(',
-    re.IGNORECASE)
+# A move in cmd or PowerShell where a command starts (see windows_moves): Move-Item and its aliases mi,
+# mv and move, cmd's move, robocopy with /MOV or /MOVE. The .NET File / Directory Move methods and MoveTo
+# are calls (CODE_MOVE_CALL_RE). Text is read as tokens: quoted strings, parentheses, separators, words.
+WIN_MOVE_COMMANDS = {'move-item', 'mi', 'mv', 'move', 'robocopy'}
+WIN_STATEMENT_TOKEN_RE = LazyPattern(r'\'(?:[^\']|\'\')*\'|"(?:[^"`]|`.)*"?|[()]|[;|&\n{}]|[^\S\n]+|[^\s\'"();|&\n{}]+')
+# Move-Item's parameters that take a value (with their aliases); its destination; its dry run.
+PS_MOVE_VALUE_PARAMS = ('path', 'literalpath', 'pspath', 'lp', 'destination', 'filter', 'include', 'exclude',
+                        'credential', 'erroraction', 'ea', 'warningaction', 'wa', 'errorvariable', 'ev',
+                        'warningvariable', 'wv', 'outvariable', 'ov', 'outbuffer', 'ob', 'pipelinevariable',
+                        'pv', 'informationaction', 'infa', 'informationvariable', 'iv', 'progressaction',
+                        'proga')
+PS_MOVE_SWITCHES = ('force', 'passthru', 'whatif', 'wi', 'confirm', 'cf', 'usetransaction', 'usetx', 'verbose',
+                    'vb', 'debug', 'db')
 TRASH_COMMANDS = {'trash', 'trash-put', 'trash-rm', 'trash-empty', 'gtrash', 'rmtrash', 'gvfs-trash',
                   'recycle-bin'}
 TRASH_HARMLESS = {'-l', '--list', '-h', '--help', '-v', '--version', 'list', 'restore', '--restore'}
 RENAME_COMMANDS = {'rename', 'prename', 'perl-rename', 'file-rename'}
-# Folder names that are a trash wherever they sit: Windows' Recycle Bin (and its older names), macOS'
-# per-volume .Trashes and per-user .Trash, the freedesktop .Trash-<uid> on removable drives.
-TRASH_SEGMENT_RE = re.compile(r'^(?:\$recycle\.bin|recycler|recycled|\.trashes|\.trash|\.trash-\d+)$', re.IGNORECASE)
+# Folder names that are a trash wherever they sit: macOS' per-volume .Trashes and per-user .Trash, the
+# freedesktop .Trash-<uid> on removable drives. Windows' Recycle Bin and its older names (Recycled,
+# Recycler) count only directly under a drive root, because a project can have its own folder with
+# such an ordinary name: C:\$Recycle.Bin, D:\RECYCLER, //server/share/$RECYCLE.BIN, and a Windows drive
+# mounted on macOS or Linux (/Volumes/USB, /media/me/USB, /run/media/me/USB, /mnt/c).
+TRASH_SEGMENT_RE = re.compile(r'^(?:\.trashes|\.trash|\.trash-\d+)$', re.IGNORECASE)
+RECYCLE_SEGMENT_RE = re.compile(r'^(?:\$recycle\.bin|recycler|recycled)$', re.IGNORECASE)
+DRIVE_ROOT_RE = re.compile(r'^(?:/[a-z]|/mnt/[^/]+|/media/[^/]+(?:/[^/]+)?|/run/media/[^/]+/[^/]+|/volumes/[^/]+'
+                           r'|//[^/]+/[^/]+)$', re.IGNORECASE)
+# rsync and rclone options that take a value, so that value is not read as the destination. An option
+# in neither table is read both ways (see disposal_operand_sets).
+RSYNC_VALUE_SHORT = 'efTBM@'
+RSYNC_LONG_VALUES = {
+    '--address', '--backup-dir', '--block-size', '--bwlimit', '--cc', '--checksum-choice', '--checksum-seed',
+    '--chmod', '--chown', '--compare-dest', '--compress-choice', '--compress-level', '--config', '--contimeout',
+    '--copy-as', '--copy-dest', '--debug', '--dparam', '--early-input', '--exclude', '--exclude-from',
+    '--files-from', '--filter', '--groupmap', '--iconv', '--include', '--include-from', '--info', '--link-dest',
+    '--log-file', '--log-file-format', '--log-format', '--max-alloc', '--max-delete', '--max-size',
+    '--min-size', '--modify-window', '--only-write-batch', '--out-format', '--outbuf', '--partial-dir',
+    '--password-file', '--port', '--protocol', '--read-batch', '--remote-option', '--rsh', '--rsync-path',
+    '--skip-compress', '--sockopts', '--stderr', '--stop-after', '--stop-at', '--suffix', '--temp-dir',
+    '--time-limit', '--timeout', '--usermap', '--write-batch', '--zc', '--zl',
+}
+RSYNC_LONG_FLAGS = {
+    '--8-bit-output', '--acls', '--append', '--append-verify', '--archive', '--backup', '--blocking-io',
+    '--checksum', '--compress', '--copy-dirlinks', '--copy-links', '--copy-unsafe-links', '--cvs-exclude',
+    '--del', '--delay-updates', '--delete', '--delete-after', '--delete-before', '--delete-delay',
+    '--delete-during', '--delete-excluded', '--delete-missing-args', '--devices', '--dirs', '--dry-run',
+    '--executability', '--existing', '--fake-super', '--force', '--fuzzy', '--group', '--hard-links',
+    '--help', '--human-readable', '--ignore-errors', '--ignore-existing', '--ignore-missing-args',
+    '--ignore-times', '--inplace', '--itemize-changes', '--keep-dirlinks', '--links', '--list-only',
+    '--mkpath', '--no-implied-dirs', '--numeric-ids', '--omit-dir-times', '--omit-link-times',
+    '--one-file-system', '--owner', '--partial', '--perms', '--progress', '--prune-empty-dirs', '--quiet',
+    '--recursive', '--relative', '--remove-sent-files', '--remove-source-files', '--safe-links',
+    '--size-only', '--sparse', '--specials', '--stats', '--super', '--times', '--update', '--verbose',
+    '--version', '--whole-file', '--xattrs',
+}
+RCLONE_LONG_VALUES = {
+    '--backup-dir', '--bind', '--buffer-size', '--bwlimit', '--bwlimit-file', '--ca-cert', '--cache-dir',
+    '--checkers', '--client-cert', '--client-key', '--compare-dest', '--config', '--contimeout',
+    '--copy-dest', '--cutoff-mode', '--dump', '--exclude', '--exclude-from', '--exclude-if-present',
+    '--expect-continue-timeout', '--files-from', '--files-from-raw', '--filter', '--filter-from', '--header',
+    '--header-download', '--header-upload', '--include', '--include-from', '--log-file', '--log-format',
+    '--log-level', '--low-level-retries', '--max-age', '--max-backlog', '--max-depth', '--max-duration',
+    '--max-size', '--max-stats-groups', '--max-transfer', '--metadata-exclude', '--metadata-filter',
+    '--metadata-include', '--metadata-set', '--min-age', '--min-size', '--multi-thread-chunk-size',
+    '--multi-thread-cutoff', '--multi-thread-streams', '--multi-thread-write-buffer-size', '--order-by',
+    '--password-command', '--rc-addr', '--rc-pass', '--rc-user', '--retries', '--retries-sleep', '--stats',
+    '--stats-file-name-length', '--stats-log-level', '--stats-unit', '--suffix', '--temp-dir', '--timeout',
+    '--tpslimit', '--tpslimit-burst', '--track-renames-strategy', '--transfers', '--user-agent',
+}
+RCLONE_LONG_FLAGS = {
+    '--check-first', '--checksum', '--create-empty-src-dirs', '--delete-after', '--delete-before',
+    '--delete-during', '--delete-empty-src-dirs', '--delete-excluded', '--dry-run', '--fast-list',
+    '--ignore-case', '--ignore-checksum', '--ignore-errors', '--ignore-existing', '--ignore-size',
+    '--ignore-times', '--immutable', '--interactive', '--links', '--metadata', '--no-check-dest',
+    '--no-traverse', '--no-update-modtime', '--progress', '--quiet', '--size-only', '--track-renames',
+    '--update', '--use-json-log', '--use-server-modtime', '--verbose',
+}
+ZIP_OUTPUT_OPTS = {'-O', '--out', '--output-file'}
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -665,14 +756,21 @@ DISPOSAL_ROOTS = build_disposal_roots(_homes())
 
 
 def is_disposal(path):
-    """True for a path inside a temporary folder or a trash (see build_disposal_roots), or below a folder
-    whose name makes it a trash wherever it sits ($Recycle.Bin, .Trashes, .Trash, .Trash-1000)."""
+    """True for a path inside a temporary folder or a trash (see build_disposal_roots), below a folder
+    whose name makes it a trash wherever it sits (.Trashes, .Trash, .Trash-1000), or below a Recycle Bin
+    folder directly under a drive root (C:\\$Recycle.Bin, D:\\RECYCLER)."""
     if not path or SENT in path:
         return False
     n = _search_norm(path)
     if any(n == root or n.startswith(root + '/') for root in DISPOSAL_ROOTS):
         return True
-    return any(TRASH_SEGMENT_RE.match(seg) for seg in n.split('/'))
+    segs = n.split('/')
+    for k, seg in enumerate(segs):
+        if TRASH_SEGMENT_RE.match(seg):
+            return True
+        if RECYCLE_SEGMENT_RE.match(seg) and DRIVE_ROOT_RE.match('/'.join(segs[:k])):
+            return True
+    return False
 
 
 def unpack_target(path):
@@ -1513,12 +1611,13 @@ class Stdin(object):
 
 class Arg(object):
     """An expanded word (one field)."""
-    __slots__ = ('text', 'globby', 'quoted', 'assign', 'dl_sub', 'sub_sensitive', 'raw', 'tmp_sub')
+    __slots__ = ('text', 'globby', 'quoted', 'assign', 'dl_sub', 'sub_sensitive', 'raw', 'tmp_sub', 'tmp_lead')
 
     def __init__(self):
         self.text, self.globby, self.quoted, self.assign = '', False, False, None
         self.dl_sub, self.sub_sensitive, self.raw = False, None, ''
         self.tmp_sub = False        # names a temporary folder: $(mktemp -d), $TMPDIR, $TMP, $TEMP
+        self.tmp_lead = False       # starts with a folder mktemp made, whose path is not known: "$D/x"
 
     @property
     def unknown(self):
@@ -1531,6 +1630,15 @@ def make_arg(text):
     return a
 
 
+def part_arg(a, text):
+    """A piece of an expanded word, such as the value attached to an option (--target-directory=VALUE,
+    -tVALUE): it names a temporary folder when the whole word did."""
+    b = make_arg(text)
+    if a.tmp_sub:
+        b.tmp_sub, b.raw = True, a.raw
+    return b
+
+
 class Fields(object):
     """Builds the fields of one word: an unquoted expansion splits on blanks, "$@" on parameters."""
 
@@ -1540,9 +1648,11 @@ class Fields(object):
 
     def reset(self):
         self.buf, self.has, self.globby, self.quoted, self.dl, self.sens = [], False, False, False, False, None
-        self.tmp = False
+        self.tmp = self.lead = False
 
-    def add(self, text, quoted=False, globby=False):
+    def add(self, text, quoted=False, globby=False, made_tmp=False):
+        if not self.buf:
+            self.lead = made_tmp
         self.buf.append(text)
         self.has = True
         self.quoted = self.quoted or quoted
@@ -1553,7 +1663,7 @@ class Fields(object):
             a = Arg()
             a.text, a.raw = ''.join(self.buf), self.raw
             a.globby, a.quoted, a.dl_sub, a.sub_sensitive = self.globby, self.quoted, self.dl, self.sens
-            a.tmp_sub = self.tmp
+            a.tmp_sub, a.tmp_lead = self.tmp, self.lead
             self.out.append(a)
         self.reset()
 
@@ -1607,7 +1717,8 @@ class Evaluator(object):
                     text = m.group(1) + '=' + tilde(m.group(2), ctx) if m else tilde(text, ctx)
                 f.add(text, quoted, not quoted and any(ch in text for ch in '*?['))
             elif kind in ('var', 'vardef'):
-                if part[1] in ('TMPDIR', 'TMP', 'TEMP') or part[1] in ctx.tmp_vars:
+                made = part[1] in ctx.tmp_vars              # D=$(mktemp -d) earlier in the command
+                if part[1] in ('TMPDIR', 'TMP', 'TEMP') or made:
                     f.tmp = True
                 v = ctx.lookup(part[1])
                 if kind == 'vardef' and not v:
@@ -1615,7 +1726,7 @@ class Evaluator(object):
                     v = tilde(default, ctx) if '$' not in default and '`' not in default else None
                 quoted = part[-1]
                 if v is None:
-                    f.add(SENT, quoted)
+                    f.add(SENT, quoted, made_tmp=made)
                 elif quoted or assign:
                     f.add(v, True)
                 else:
@@ -1643,7 +1754,8 @@ class Evaluator(object):
                 f.dl = f.dl or info.downloader
                 f.sens = f.sens or info.sensitive
                 f.tmp = f.tmp or makes_temp_folder(part[1])
-                f.add(SENT, kind == 'cmd' and part[2])
+                f.add(SENT, kind == 'cmd' and part[2],
+                      made_tmp=kind == 'cmd' and makes_temp_folder(part[1], only=True))
             else:
                 f.add(SENT, len(part) > 1 and part[1])
         f.end()
@@ -2699,7 +2811,7 @@ def getopt_walk(args, spec, permute=True):
             key, eq, value = t.partition('=')
             name = resolve_long(key, longs)
             if eq:
-                events.append(('opt', name, make_arg(value)))
+                events.append(('opt', name, part_arg(a, value)))
             elif name in long_values and i + 1 < len(args):
                 events.append(('opt', name, args[i + 1]))
                 if seen_operand:
@@ -2715,7 +2827,7 @@ def getopt_walk(args, spec, permute=True):
             if c in shorts:
                 rest = t[j + 1:]
                 if rest:
-                    events.append(('opt', '-' + c, make_arg(rest)))
+                    events.append(('opt', '-' + c, part_arg(a, rest)))
                 elif i + 1 < len(args):
                     events.append(('opt', '-' + c, args[i + 1]))
                     if seen_operand:
@@ -4052,31 +4164,69 @@ def check_cp(args, cwd, ctx):
 
 
 # ---- deleting by moving -----------------------------------------------------------------------------
-def makes_temp_folder(body):
-    """True when a command substitution's text makes or prints a temporary folder: mktemp in its default
-    place ($TMPDIR or /tmp, also with -t or a bare --tmpdir), or code that asks for one (mkdtemp,
-    gettempdir, os.tmpdir() ...). mktemp -p DIR, --tmpdir=DIR or a template with a folder in it decides by
-    that folder."""
-    try:
-        words = body.split()
-    except AttributeError:
+MKTEMP_NAMES = ('mktemp', 'gmktemp')
+ZIP_LONG_VALUES = {'--password', '--temp-path', '--suffixes', '--from-date', '--before-date', '--output-file', '--out',
+                   '--compression-method', '--split-size', '--dot-size', '--logfile-path'}
+
+
+def _runs_mktemp(words):
+    """mktemp's own arguments when a simple command (whitespace-split words) runs mktemp, also by path
+    (/usr/bin/mktemp, \\mktemp) or behind a wrapper (command, env, nice, timeout ...); otherwise None."""
+    i = 0
+    while i < len(words):
+        w = words[i].strip('\'"').lstrip('\\')
+        if re.match(r'^[A-Za-z_][A-Za-z0-9_]*=', w):
+            i += 1                                                  # TMPDIR=/x mktemp, env VAR=x mktemp
+            continue
+        name = fold_name(posixpath.basename(canon(w)) or w)
+        if name in MKTEMP_NAMES:
+            return [x.strip('\'"') for x in words[i + 1:]]
+        if name not in WRAPPER_VALUE_OPTS or (name == 'command' and words[i + 1:i + 2] in (['-v'], ['-V'])):
+            return None
+        value_opts = WRAPPER_VALUE_OPTS[name]
+        i += 1
+        while i < len(words) and words[i].startswith('-') and words[i] != '--':
+            i += 2 if words[i] in value_opts else 1
+        if i < len(words) and words[i] == '--':
+            i += 1
+        if name == 'timeout' and i < len(words):
+            i += 1                                                  # the duration
+    return None
+
+
+def _mktemp_in_temp(rest):
+    """True when mktemp with these arguments makes its file or folder in a temporary folder: its default
+    place ($TMPDIR or /tmp, also with -t or a bare --tmpdir). -p DIR, --tmpdir=DIR or a template with a
+    folder in it decide by that folder."""
+    for k, w in enumerate(rest):
+        if w == '-p':
+            return k + 1 < len(rest) and bool(TEMP_TEXT_RE.search(rest[k + 1]))
+        if w.startswith('-p') and not w.startswith('--'):
+            return bool(TEMP_TEXT_RE.search(w[2:]))
+        if w.startswith('--tmpdir='):
+            return bool(TEMP_TEXT_RE.search(w[len('--tmpdir='):]))
+        if not w.startswith('-') and '/' in w:
+            return bool(TEMP_TEXT_RE.search(w))
+    return True
+
+
+def makes_temp_folder(body, only=False):
+    """True when a command substitution's text makes or prints a temporary folder: mktemp in a temporary
+    folder (_mktemp_in_temp), also by path or behind a wrapper, or code that asks for one (mkdtemp,
+    gettempdir, os.tmpdir() ...). With only=True the text must be that one mktemp command and nothing
+    else, the proof that what it prints is a fresh temporary folder (`mktemp -d >/dev/null; echo ~/x`
+    prints something else)."""
+    if not isinstance(body, str) or not body.strip():
         return False
-    if not words:
-        return False
-    if words[0] == 'command' and len(words) > 1:
-        words = words[1:]
-    if words[0] in ('mktemp', 'gmktemp'):
-        rest = [w.strip('\'"') for w in words[1:]]
-        for k, w in enumerate(rest):
-            if w == '-p':
-                return k + 1 < len(rest) and bool(TEMP_TEXT_RE.search(rest[k + 1]))
-            if w.startswith('-p') and not w.startswith('--'):
-                return bool(TEMP_TEXT_RE.search(w[2:]))
-            if w.startswith('--tmpdir='):
-                return bool(TEMP_TEXT_RE.search(w[len('--tmpdir='):]))
-            if not w.startswith('-') and '/' in w:
-                return bool(TEMP_TEXT_RE.search(w))
-        return True
+    if only:
+        if re.search(r'[;&|<>\n`]|\$\(', body):
+            return False
+        rest = _runs_mktemp(body.split())
+        return rest is not None and _mktemp_in_temp(rest)
+    for piece in re.split(r'[;&|\n]+', body):
+        rest = _runs_mktemp(piece.split())
+        if rest is not None and _mktemp_in_temp(rest):
+            return True
     return bool(TEMP_DIR_MAKER_RE.search(body))
 
 
@@ -4098,11 +4248,14 @@ def disposal_place(arg, cwd):
 
 def already_disposable(arg, cwd):
     """True when the source of a move is itself in a temporary folder or a trash, so moving it on deletes
-    nothing that was safe before. A source that cannot be known is not."""
-    if arg.tmp_sub:
-        return True
+    nothing that was safe before: its expanded, normalized path lies in one, or it starts with a folder
+    mktemp made in this same command and does not climb out of it ("$D/x", not "$D/../x"). $TMPDIR, $TMP
+    and $TEMP prove nothing when their value is not known: unset, they expand to nothing, and
+    ${TMPDIR:-.} to the working folder."""
     if arg.unknown:
-        return False
+        tail = arg.text[1:] if arg.text.startswith(SENT) else None
+        return bool(arg.tmp_lead and tail is not None and SENT not in tail
+                    and '..' not in re.split(r'[/\\]', tail))
     ref = PathRef(arg.text, cwd)
     return is_disposal(ref.lex) or is_disposal(ref.real)
 
@@ -4142,46 +4295,115 @@ def check_mv_disposal(args, cwd):
         check_move_into_disposal('moving', operands[:-1], operands[-1], cwd)
 
 
+def disposal_operand_sets(args, value_short, long_values, long_flags):
+    """The operands of an rsync or rclone command as [(operands, dry run)], so an option's value is not
+    taken for the destination. An option in neither table is read both ways: once as a flag, once taking
+    the next word as its value (a reading per way, both judged)."""
+    readings = []
+    for unknown_takes_value in (False, True):
+        ops, dry, unknown, done, i = [], False, False, False, 0
+        while i < len(args):
+            t = args[i].text
+            if done or t == '-' or not t.startswith('-'):
+                ops.append(args[i])
+            elif t == '--':
+                done = True
+            elif t.startswith('--'):
+                name, eq, _ = t.partition('=')
+                dry = dry or name == '--dry-run'
+                if not eq and i + 1 < len(args) and name not in long_flags:
+                    if name in long_values:
+                        i += 1
+                    else:
+                        unknown = True
+                        if unknown_takes_value and not args[i + 1].text.startswith('-'):
+                            i += 1
+            else:
+                for j in range(1, len(t)):
+                    if t[j] in value_short:
+                        if j == len(t) - 1:
+                            i += 1                                  # the value is the next word
+                        break
+                    dry = dry or t[j] == 'n'
+            i += 1
+        readings.append((ops, dry))
+        if not unknown:
+            break
+    return readings
+
+
+def is_remote(text):
+    """host:path and remote:path name another machine or a cloud store; C:/path is a Windows drive."""
+    return bool(re.match(r'^[^/]*:', text)) and not (WINDOWS and DRIVE_RE.match(text))
+
+
 def check_rsync_disposal(name, args, cwd):
     """rsync --remove-source-files deletes each source file once it is copied; rclone move and moveto
-    delete the sources too."""
-    texts = [a.text for a in args]
+    delete the sources too. A dry run (-n, --dry-run) moves nothing."""
     if name == 'rsync':
-        if not any(t == '--remove-source-files' or t.startswith('--remove-sent-files') for t in texts):
+        if not any(a.text == '--remove-source-files' or a.text.startswith('--remove-sent-files') for a in args):
             return
-        operands = [a for a in args if not a.text.startswith('-')]
+        readings = disposal_operand_sets(args, RSYNC_VALUE_SHORT, RSYNC_LONG_VALUES, RSYNC_LONG_FLAGS)
     else:
-        sub = next((k for k, a in enumerate(args) if not a.text.startswith('-')), None)
-        if sub is None or args[sub].text not in ('move', 'moveto'):
-            return
-        operands = [a for a in args[sub + 1:] if not a.text.startswith('-')]
-    if len(operands) >= 2 and not re.match(r'^[^/]*:', operands[-1].text):      # host:path is remote
-        check_move_into_disposal('%s moving' % name, operands[:-1], operands[-1], cwd)
+        readings = disposal_operand_sets(args, '', RCLONE_LONG_VALUES, RCLONE_LONG_FLAGS)
+    for ops, dry in readings:
+        if dry:
+            continue
+        if name == 'rsync':
+            sources, dest = ops[:-1], ops[-1] if len(ops) >= 2 else None
+        elif len(ops) >= 3 and ops[0].text in ('move', 'moveto'):
+            sources, dest = [ops[1]], ops[2]                        # rclone move SOURCE DEST
+        else:
+            continue
+        if dest is not None and not is_remote(dest.text):
+            check_move_into_disposal('%s moving' % name, sources, dest, cwd)
 
 
 def check_archive_disposal(name, args, cwd):
     """An archive that removes the files it packs (tar --remove-files, zip -m / -mm, 7z -sdel) written into
-    a temporary folder or the trash."""
-    texts = [a.text for a in args]
-    archive = None
+    a temporary folder or the trash. tar and zip options are read with their option tables, so an attached
+    value (-czf/tmp/x.tgz) and an option's value (zip -P password) are told from the archive."""
+    archives = []
     if name in ('tar', 'bsdtar', 'gtar'):
-        if '--remove-files' not in texts:
+        events = getopt_walk(tar_args(args), TAR_SPEC)
+        if not any(ev[0] == 'opt' and ev[1] == '--remove-files' for ev in events):
             return
-        for k, t in enumerate(texts):
-            if t.startswith('--file='):
-                archive = make_arg(t[len('--file='):])
-            elif t in ('-f', '--file') or (re.match(r'^-[A-Za-z]*f$', t)) or (k == 0 and re.match(r'^[A-Za-z]*f$', t)):
-                archive = args[k + 1] if k + 1 < len(args) else None
-    elif name == 'zip':
-        if not any(t in ('-m', '-mm') or re.match(r'^-[A-Za-z]*m[A-Za-z]*$', t) and not t.startswith('--') for t in texts):
+        archives = [ev[2] for ev in events if ev[0] == 'opt' and ev[1] in ('-f', '--file') and ev[2] is not None]
+    elif name == 'zip':                     # zip [options] archive inputs... [-x pattern...] [-i pattern...]
+        moves, positional, listing, k = False, [], False, 0
+        while k < len(args):
+            a, t = args[k], args[k].text
+            if t in ('-x', '--exclude', '-i', '--include'):
+                listing = True
+            elif t.startswith('--'):
+                listing = False
+                key, eq, _ = t.partition('=')
+                moves = moves or key == '--move'
+                if key in ZIP_LONG_VALUES:
+                    value = part_arg(a, t[len(key) + 1:]) if eq else (args[k + 1] if k + 1 < len(args) else None)
+                    k += 0 if eq else 1
+                    if key in ZIP_OUTPUT_OPTS and value is not None:
+                        archives.append(value)              # -O / --out: the archive written
+            elif t.startswith('-') and t != '-':
+                listing = False
+                if t in ZIP_VALUE_OPTS:
+                    if t in ZIP_OUTPUT_OPTS and k + 1 < len(args):
+                        archives.append(args[k + 1])
+                    k += 1
+                elif re.match(r'^-[A-Za-z]*m[A-Za-z]*$', t):
+                    moves = True
+            elif not listing:
+                positional.append(a)
+            k += 1
+        if not moves:
             return
-        archive = next((a for a in args if not a.text.startswith('-')), None)
+        archives = positional[:1] + archives
     elif name in ('7z', '7za', '7zz'):
-        if '-sdel' not in texts:
+        if '-sdel' not in [a.text for a in args]:
             return
         rest = [a for a in args if not a.text.startswith('-')]
-        archive = rest[1] if len(rest) > 1 else None
-    if archive is not None:
+        archives = rest[1:2]
+    for archive in archives:
         place = disposal_place(archive, cwd)
         if place:
             raise disposal_block('%s packing files and removing them, with the archive' % name, place)
@@ -4189,16 +4411,19 @@ def check_archive_disposal(name, args, cwd):
 
 def check_trash_command(name, args, cwd):
     """Trash commands: macOS and freedesktop trash tools, gio trash, KDE's kioclient move to trash:/,
-    nircmd moverecyclebin. Listing, restoring and help pass."""
+    nircmd moverecyclebin. Listing, restoring and help pass, when the whole command does only that."""
     texts = [a.text for a in args]
     if name in TRASH_COMMANDS:
         if texts and all(t in TRASH_HARMLESS for t in texts):
             return
         raise disposal_block('%s %s' % (name, ' '.join(texts)[:80]), 'the trash')
     if name == 'gio' and texts[:1] == ['trash']:
-        if any(t in ('-l', '--list', '--restore') for t in texts[1:]) or not texts[1:]:
-            return
-        raise disposal_block('gio trash %s' % ' '.join(texts[1:])[:80], 'the trash')
+        rest = texts[1:]
+        if all(t in ('-l', '--list', '-h', '--help') for t in rest):
+            return                                                  # gio trash --list, and nothing else
+        if '--restore' in rest and all(t.startswith(('-', 'trash:')) for t in rest):
+            return                                                  # gio trash --restore trash:///x
+        raise disposal_block('gio trash %s' % ' '.join(rest)[:80], 'the trash')
     if name in ('kioclient', 'kioclient5', 'kioclient6', 'kfmclient') and \
             any(t in ('move', 'mv') for t in texts) and any(t.startswith('trash:') for t in texts):
         raise disposal_block('%s %s' % (name, ' '.join(texts)[:80]), 'the trash')
@@ -4213,16 +4438,330 @@ def check_trash_command(name, args, cwd):
                 raise disposal_block('%s %s' % (name, ' '.join(texts)[:80]), place or 'a temporary folder')
 
 
-def code_moves_to_disposal(code):
-    """The text of a move or rename in inline code whose destination names a temporary folder or a trash,
-    or None: the rest of the statement after the move (up to ; or a line end) names one, or the code makes
-    a temporary folder (mkdtemp, gettempdir, os.tmpdir() ...) and moves something."""
-    makes_folder = TEMP_DIR_MAKER_RE.search(code)
-    for m in CODE_MOVE_RE.finditer(code):
-        tail = re.split(r'[;\n]', code[m.end():m.end() + 400], maxsplit=1)[0]
-        if TEMP_TEXT_RE.search(tail) or makes_folder:
-            return (m.group(0) + tail)[:80].strip()
+# ---- deleting by moving, in inline code ----------------------------------------------------------------
+CODE_ARG_TOKEN_RE = LazyPattern(r'\'(?:[^\'\\\n]|\\.)*\'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`|[()\[\]{},;\n]'
+                                r'|[^\'"`()\[\]{},;\n]+')
+CODE_JOIN_WORDS_RE = LazyPattern(r'\b(?:os\.path\.join|path\.join|joinpath|join|pathlib\.Path|Path|File\.join'
+                                 r'|Join-Path|tempfile)\b')
+MAX_CALL_CHARS = 2000
+MAX_SCAN_TOKENS = 200000       # tokens read for the arguments of every move in one piece of code, in total
+
+
+class Budget(object):
+    """Tokens left for reading move arguments in one piece of code. Calls nested in unclosed calls could
+    make the reading quadratic; past the budget the code counts as unanalysable (fail closed)."""
+    __slots__ = ('left',)
+
+    def __init__(self):
+        self.left = MAX_SCAN_TOKENS
+
+    def spend(self):
+        self.left -= 1
+        if self.left < 0:
+            raise ParseError('inline code with more nested move calls than the hook can check')
+
+
+def call_args(code, start, budget, statement=False):
+    """The top-level arguments (texts) of a call whose list begins at code[start], just after its '(';
+    with statement=True (a call without parentheses: rename "a", "b") the list ends at ; or a line end.
+    At most MAX_CALL_CHARS characters are read."""
+    args, buf, depth = [], [], 0
+    for m in CODE_ARG_TOKEN_RE.finditer(code, start, min(len(code), start + MAX_CALL_CHARS)):
+        budget.spend()
+        tok = m.group(0)
+        if tok in ('(', '[', '{'):
+            depth += 1
+        elif tok in (')', ']', '}'):
+            if depth == 0:
+                break
+            depth -= 1
+        elif tok == ',' and depth == 0:
+            args.append(''.join(buf))
+            buf = []
+            continue
+        elif tok in (';', '\n') and depth == 0 and statement:
+            break
+        buf.append(tok)
+    args.append(''.join(buf))
+    args = [a.strip() for a in args]
+    return args if any(args) else []
+
+
+def _receiver(code, end):
+    """The object or module a call at code[end] is made on (os., shutil., FileUtils., [IO.File]::), read
+    back over at most 60 characters."""
+    j, low = end, max(0, end - 60)
+    while j > low and (code[j - 1].isalnum() or code[j - 1] in '_$.:])'):
+        j -= 1
+    return code[j:end]
+
+
+def _shell_mv_destination(words):
+    """(sources, destination) of mv's words: -t DIR, --target-directory=DIR, or the last operand."""
+    ops, target, i = [], None, 0
+    while i < len(words):
+        w = words[i]
+        if w in ('-t', '--target-directory') and i + 1 < len(words):
+            target = words[i + 1]
+            i += 1
+        elif w.startswith('--target-directory='):
+            target = w.split('=', 1)[1]
+        elif w.startswith('-t') and not w.startswith('--') and len(w) > 2:
+            target = w[2:]
+        elif not w.startswith('-') or w == '-':
+            ops.append(w)
+        i += 1
+    if target is not None:
+        return ops, target
+    return (ops[:-1], ops[-1]) if len(ops) >= 2 else (ops, None)
+
+
+def code_move_destinations(code):
+    """Every move or rename in inline code, as (text, source expression or None, destination expression or
+    None): calls (shutil.move(a, b), os.rename(a, b), Path(a).rename(b), fs.renameSync(a, b) ...; with two
+    or more arguments the destination is the second, or the one named dst / dest / destination / target;
+    with one argument it is that one, the object the method is called on being the source), Perl's and
+    Ruby's calls without parentheses, and a shell mv inside a string (os.system('mv a b'),
+    subprocess.run(['mv', 'a', 'b']))."""
+    budget = Budget()
+    for m in CODE_MOVE_CALL_RE.finditer(code):
+        name = m.group(1).lower()
+        recv = _receiver(code, m.start())
+        args = call_args(code, m.end(), budget)
+        if not args:
+            continue
+        if name == 'replace' and not (len(args) == 1 or re.search(r'(?<![\w$])os\.$', recv)):
+            continue                                    # str.replace(old, new); Path.replace(target) has one
+        text = recv + code[m.start():m.start() + 120].split('\n', 1)[0]
+        named = [re.match(r'(?:dst|dest|destination|target)\s*=(?!=)\s*(.*)$', a, re.S) for a in args]
+        named = [n.group(1) for n in named if n]
+        if named:
+            yield text, args[0], named[0]
+        elif len(args) >= 2:
+            yield text, args[0], args[1]
+        else:
+            yield text, None, args[0]
+    for m in CODE_MOVE_BARE_RE.finditer(code):
+        args = call_args(code, m.end(), budget, statement=True)
+        if len(args) >= 2:
+            yield code[m.start():m.end() + 80].split('\n', 1)[0], args[0], args[1]
+    if 'mv' not in code:
+        return
+    for m in CODE_MV_LIST_RE.finditer(code):                # subprocess.run(['mv', 'a', '/tmp'])
+        items = [re.sub(r'^([\'"])(.*)\1$', r'\2', a, flags=re.S) for a in call_args(code, m.end(), budget)]
+        sources, dest = _shell_mv_destination(items)
+        yield code[m.start():m.end() + 80].split('\n', 1)[0], None, dest
+    for lit in CODE_STRING_RE.finditer(code):              # os.system('mv a /tmp'), `mv a /tmp`
+        body = lit.group(0)[1:-1][:4000]
+        if 'mv' not in body:
+            continue
+        for m in SHELL_MV_IN_TEXT_RE.finditer(body):
+            try:
+                words = shlex.split(m.group(1))
+            except ValueError:
+                words = m.group(1).split()
+            sources, dest = _shell_mv_destination(words)
+            if dest is None:                                # 'mv ' + src + ' ' + d: the rest of the line
+                dest = body[m.end():] + code[lit.end():lit.end() + 300].split('\n', 1)[0]
+            yield 'mv ' + m.group(1)[:76], None, dest
+
+
+def code_temp_names(code):
+    """Names inline code assigns a temporary folder to (d = tempfile.mkdtemp(), const t = os.tmpdir(),
+    $d = [IO.Path]::GetTempPath(), `with TemporaryDirectory() as d`, Ruby `Dir.mktmpdir do |d|`, a JS
+    callback `d =>`), and names assigned from those (p = os.path.join(d, 'x')): (patterns that find each
+    name as a whole word, the names)."""
+    raw, patterns = [], []
+
+    def add(name):
+        if name and name not in raw and len(raw) < 50:
+            raw.append(name)
+            patterns.append(re.compile(r'(?<![\w$@])' + re.escape(name) + r'(?!\w)'))
+    for line in code.split('\n'):
+        if TEMP_DIR_MAKER_RE.search(line):
+            for m in CODE_AS_NAME_RE.finditer(line):
+                add(m.group(1) or m.group(2) or m.group(3))
+    for m in CODE_ASSIGN_RE.finditer(code):
+        value = m.group(2)
+        if TEMP_TEXT_RE.search(value) or any(p.search(value) for p in patterns):
+            add(m.group(1))
+    return patterns, raw
+
+
+def names_disposal(text, names):
+    """What an expression in inline code names as a temporary folder or a trash, or None: such a place by
+    name (/tmp, $TMPDIR, os.tmpdir(), mkdtemp() ..., see TEMP_TEXT_RE), a name assigned one
+    (code_temp_names), or a quoted absolute path inside one."""
+    m = TEMP_TEXT_RE.search(text)
+    if m:
+        return m.group(0)
+    for pattern in names:
+        found = pattern.search(text)
+        if found:
+            return found.group(0)
+    for lit in CODE_STRING_RE.finditer(text):
+        body = lit.group(0)[1:-1].replace('\\\\', '\\')
+        if body.startswith(('/', '~', '\\')) or DRIVE_RE.match(body):
+            path = PathRef(expand_user(body), None).lex
+            if is_disposal(path):
+                return pretty(path)
     return None
+
+
+def code_source_in_temp(src, names, raw):
+    """True when a move's source expression stays inside a temporary folder: it names one, and nothing in
+    it can lead elsewhere. Only temporary names, relative literals without .. (or absolute ones inside a
+    temporary folder), interpolations of temporary names, and path joining (os.path.join, path.join,
+    Path, /, +) may appear: os.path.join(d, p) passes nothing, because p may be an absolute path, and
+    os.path.join drops d before one."""
+    if not names_disposal(src, names):
+        return False
+    for lit in CODE_STRING_RE.finditer(src):
+        body = lit.group(0)[1:-1]
+        if '..' in body:
+            return False
+        if body.startswith(('/', '~', '\\')) or DRIVE_RE.match(body):
+            if not is_disposal(PathRef(expand_user(body.replace('\\\\', '\\')), None).lex):
+                return False
+        for ref in re.findall(r'\{([^{}]*)\}|\$(\w+)', body):         # f'{d}/x', `${t}/x`, "$d\x"
+            name = (ref[0] or ref[1]).strip()
+            if name not in raw and '$' + name not in raw:
+                return False
+    rest = CODE_STRING_RE.sub(' ', src)
+    for pattern in names:
+        rest = pattern.sub(' ', rest)
+    rest = CODE_JOIN_WORDS_RE.sub(' ', TEMP_TEXT_RE.sub(' ', rest))
+    return not re.search(r'[^\s()+,/\\.\[\]]', rest)
+
+
+def code_moves_to_disposal(code):
+    """The text of a move or rename in inline code whose DESTINATION names a temporary folder or a trash,
+    or None (code_move_destinations, names_disposal). A move out of a temporary folder passes, and so does
+    a move that stays inside one (code_source_in_temp)."""
+    names = raw = None
+    for text, src, dest in code_move_destinations(code):
+        if dest is None:
+            continue
+        if names is None:
+            names, raw = code_temp_names(code)
+        if names_disposal(dest, names) and not (src is not None and code_source_in_temp(src, names, raw)):
+            return text[:80].strip()
+    return None
+
+
+# ---- deleting by moving, in cmd and PowerShell text ------------------------------------------------------
+def nircmd_recycles(text):
+    """nircmd moverecyclebin in one cmd or PowerShell statement (each statement scanned once)."""
+    for piece in re.split(r'[\n;|&]', text):
+        m = re.search(r'\bnircmd(?:\.exe)?\b', piece, re.IGNORECASE)
+        if m and re.search(r'\bmoverecyclebin\b', piece[m.end():], re.IGNORECASE):
+            return True
+    return False
+
+
+def _windows_move_target(command, words, piped):
+    """(destination text or None, dry run) of one move statement's words. Move-Item / mi / mv / move:
+    -Destination, else the last of two operands (one operand after a pipe: the pipe supplies the path);
+    -WhatIf is a dry run. cmd's move: /Y and /-Y are switches. robocopy SOURCE DEST ...: a move only with
+    /MOV or /MOVE, a dry run with /L."""
+    if command == 'robocopy':
+        if not any(re.match(r'^/MOVE?$', w, re.IGNORECASE) for w in words):
+            return None, False
+        positional = [w for w in words if not re.match(r'^/[A-Za-z+-]+(?::|$)', w)]   # /E, /R:3; not /c/x
+        dry = any(w.lower() == '/l' for w in words)
+        return (positional[1] if len(positional) > 1 else None), dry
+    dest, positional, dry, i = None, [], False, 0
+    while i < len(words):
+        w = words[i]
+        if re.match(r'^-[A-Za-z]', w):
+            name, colon, value = w[1:].partition(':')
+            n = name.lower()
+            if 'destination'.startswith(n):
+                dest = value if colon else (words[i + 1] if i + 1 < len(words) else None)
+                i += 0 if colon else 1
+            elif n == 'wi' or (len(n) > 1 and 'whatif'.startswith(n)):
+                dry = dry or value.lower() not in ('$false', '0')
+            elif any(p.startswith(n) for p in PS_MOVE_VALUE_PARAMS) and \
+                    not any(p.startswith(n) for p in PS_MOVE_SWITCHES):
+                i += 0 if colon else 1
+        elif not re.match(r'^/-?[A-Za-z]$', w):                    # cmd's move /Y
+            positional.append(w)
+        i += 1
+    if dest is None and (len(positional) >= 2 or (piped and positional)):
+        dest = positional[-1]
+    return dest, dry
+
+
+def windows_moves(text):
+    """Every move in cmd or PowerShell text as (statement text, destination text or None, dry run). A move
+    command counts where a command starts: at the start, after ; | & { } ( or a line end, and after cmd's
+    do, else, then or `if [not] exist X`. Quoted strings stay one token, so 'move on' in a string is not
+    a move."""
+    tokens = [m.group(0) for m in WIN_STATEMENT_TOKEN_RE.finditer(text)]
+    starts, start, piped = [], True, False
+    k = 0
+    while k < len(tokens):
+        tok = tokens[k]
+        if not tok.strip(' \t\r\f\v'):
+            k += 1
+            continue
+        if tok in (';', '|', '&', '\n', '{', '}', '('):
+            start, piped = True, tok == '|'
+            k += 1
+            continue
+        low = tok.lower()
+        if low in ('do', 'else', 'then'):                       # cmd: for ... do move, if ... else move
+            start = True
+            k += 1
+            continue
+        if start and low == 'if':                               # cmd: if [not] exist X command
+            words = [j for j in range(k + 1, min(len(tokens), k + 12)) if tokens[j].strip()][:3]
+            names = [tokens[j].lower() for j in words]
+            if names[:1] == ['not']:
+                words, names = words[1:], names[1:]
+            if names[:1] == ['exist'] and len(words) > 1:
+                k = words[1] + 1
+                continue
+        if start and re.sub(r'\.exe$', '', low) in WIN_MOVE_COMMANDS:
+            starts.append((k, re.sub(r'\.exe$', '', low), piped))
+        start = False
+        k += 1
+    out, budget = [], Budget()
+    for k, command, piped in starts:
+        words, buf, depth = [], [], 0
+        for tok in tokens[k + 1:k + 400]:
+            budget.spend()
+            if depth == 0 and tok in (';', '|', '&', '\n', '}', ')'):
+                break
+            if tok == '(':
+                depth += 1
+            elif tok == ')':
+                depth -= 1
+            if depth == 0 and not tok.strip(' \t\r\f\v'):
+                if buf:
+                    words.append(''.join(buf))
+                    buf = []
+                continue
+            buf.append(tok)
+        if buf:
+            words.append(''.join(buf))
+        dest, dry = _windows_move_target(command, words, piped)
+        out.append(('%s %s' % (tokens[k], ' '.join(words)), dest, dry))
+    return out
+
+
+def windows_destination_place(dest, names):
+    """The temporary folder or trash a cmd or PowerShell destination names, for the message, or None: a
+    path in one (%TEMP% and $env:TEMP expanded before), such a place by name (an unset $env:TEMP,
+    [IO.Path]::GetTempPath() ...), or a variable assigned one ($d = [IO.Path]::GetTempPath(), set D=...)."""
+    for token in WIN_PATH_TOKEN_RE.findall(dest) + [dest.strip('\'"')]:
+        if re.match(r'^/[A-Za-z]+$', token):
+            continue                                            # a switch such as /MOV or /E, not a path
+        lex = PathRef(token, None).lex
+        if is_disposal(lex):
+            return pretty(lex)
+    named = names_disposal(dest, names)
+    return 'a temporary folder (%s)' % named if named else None
 
 
 def check_docker(args, cwd):
@@ -4717,18 +5256,17 @@ def check_windows_code(code, shell, env=None):
     m = WIN_TRASH_RE.search(text)
     if m:
         raise disposal_block('%s code sending files (%s)' % (shell, m.group(0)[:60]), 'the Recycle Bin')
-    m = WIN_MOVE_RE.search(text)
-    if m:
-        for token in WIN_PATH_TOKEN_RE.findall(text[m.start():]):   # %TEMP% and $env:TEMP expanded above
-            if re.match(r'^/[A-Za-z]+$', token):
-                continue                                        # a switch such as /MOV or /E, not a path
-            lex = PathRef(token, None).lex
-            if is_disposal(lex):
-                raise disposal_block('%s code moving files (%s)' % (shell, m.group(0)[:40]), pretty(lex))
-        named = TEMP_TEXT_RE.search(text[m.start():])           # an unset $env:TEMP, GetTempPath() ...
-        if named:
-            raise disposal_block('%s code moving files (%s)' % (shell, m.group(0)[:40]),
-                                 'a temporary folder (%s)' % named.group(0))
+    if 'nircmd' in text.lower() and nircmd_recycles(text):
+        raise disposal_block('%s code sending files (nircmd moverecyclebin)' % shell, 'the Recycle Bin')
+    names = None
+    for statement, dest, dry in windows_moves(text):           # %TEMP% and $env:TEMP expanded above
+        if dest is None or dry:
+            continue
+        if names is None:
+            names = code_temp_names(text)[0]
+        place = windows_destination_place(dest, names)
+        if place:
+            raise disposal_block('%s code moving files (%s)' % (shell, statement[:40]), place)
     if WIN_FETCH_RE.search(text) and WIN_RUN_RE.search(text):
         raise download_block('%s code that downloads a script and runs it (Invoke-Expression / iex)' % shell)
     if SELF_TEXT_RE.search(text) and WIN_WRITE_RE.search(text):
@@ -4762,7 +5300,9 @@ def check_code_text(code, interpreter):
                     'Ask the user which path to delete and let them run it themselves.')
     m = TEXT_TRASH_RE.search(code)
     if m:
-        raise disposal_block('inline %s code sending files (%s)' % (interpreter, m.group(0)[:60]), 'the trash')
+        told = TELL_APP_RE.search(code[max(0, m.start() - 400):m.start()])   # move ... to trash, inside tell
+        what = (told.group(1) + ': ' if told and not m.group(0).lower().startswith('tell') else '') + m.group(0)
+        raise disposal_block('inline %s code sending files (%s)' % (interpreter, what[:60]), 'the trash')
     moved = code_moves_to_disposal(code)
     if moved:
         raise disposal_block('inline %s code moving files (%s)' % (interpreter, moved),

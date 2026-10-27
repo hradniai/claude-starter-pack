@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -801,6 +802,17 @@ PUSH_BLOCK = [
     ("git switch main && git push", "repo_feature"),
     ("git checkout main; git push origin HEAD", "repo_feature"),
     ("git checkout some-branch && git push", "repo_main"),
+    # the configured destination of a bare push (the independent review, 2026-10-27): a feature branch
+    # whose upstream is origin/main under push.default=upstream, a remote.origin.push refspec to main, a
+    # push of matching branches with a local main whose remote copy is not known to be the same
+    ("git push", "repo_upstream_main"),
+    ("git push origin", "repo_upstream_main"),
+    ("git push -u origin", "repo_upstream_main"),
+    ("git -c push.default=upstream push", "repo_simple_tracking_main"),
+    ("git push", "repo_remote_push"),
+    ("git push origin feature/x", "repo_remote_push"),
+    ("git push", "repo_matching"),
+    ("git checkout -b other origin/main && git push", "repo_upstream_main"),
 ]
 
 PUSH_ALLOW = [
@@ -834,6 +846,14 @@ PUSH_ALLOW = [
      " | sh ~/.claude/scripts/python-launcher.sh guard git-push-guard.py; echo \"exit $?\"", None),
     ("gh pr create --base main --title x --body y", None),
     ("git commit -F - <<'EOF'\nnever git push origin main\nEOF", None),
+    # a feature branch pushed to its own same-named upstream; simple (the default) refuses an upstream of
+    # another name, so it never updates main; a refspec that names its own destination
+    ("git push", "repo_upstream_same"),
+    ("git push origin", "repo_upstream_same"),
+    ("git push", "repo_simple_tracking_main"),
+    ("git push origin HEAD", "repo_upstream_main"),
+    ("git push origin feature/x:feature/x", "repo_remote_push"),
+    ("git checkout -b other && git push", "repo_upstream_same"),
 ]
 
 
@@ -899,6 +919,35 @@ class Fixture(object):
                 subprocess.run(["git", "-C", path, "symbolic-ref", "HEAD", "refs/heads/" + branch],
                                check=True, env=self.env)
                 self.repos[name] = path
+            # branches whose configured push destination differs from their own name (config only, no
+            # remote exists and nothing is pushed: the guard reads the configuration)
+            tracking_main = [("branch.feature/x.remote", "origin"), ("branch.feature/x.merge", "refs/heads/main")]
+            for name, config, commit in (
+                    ("repo_upstream_main", tracking_main + [("push.default", "upstream")], False),
+                    ("repo_upstream_same", [("branch.feature/x.remote", "origin"),
+                                            ("branch.feature/x.merge", "refs/heads/feature/x"),
+                                            ("push.default", "upstream")], False),
+                    ("repo_simple_tracking_main", tracking_main, False),
+                    ("repo_remote_push", [("remote.origin.push", "refs/heads/feature/x:refs/heads/main")], False),
+                    ("repo_matching", [("push.default", "matching")], True)):
+                path = os.path.join(self.root, name)
+                subprocess.run(["git", "init", "-q", path], check=True, env=self.env)
+                if commit:                                  # a local main to match
+                    subprocess.run(["git", "-C", path, "symbolic-ref", "HEAD", "refs/heads/main"], check=True,
+                                   env=self.env)
+                    subprocess.run(["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                                    "commit", "-q", "--allow-empty", "-m", "init"], check=True, env=self.env)
+                    subprocess.run(["git", "-C", path, "checkout", "-q", "-b", "feature/x"], check=True,
+                                   env=self.env)
+                else:
+                    subprocess.run(["git", "-C", path, "symbolic-ref", "HEAD", "refs/heads/feature/x"],
+                                   check=True, env=self.env)
+                for key, value in [("remote.origin.url", "/nonexistent/remote.git")] + config:
+                    subprocess.run(["git", "-C", path, "config", "--add", key, value], check=True, env=self.env)
+                self.repos[name] = path
+        for name in ("repo_upstream_main", "repo_upstream_same", "repo_simple_tracking_main", "repo_remote_push",
+                     "repo_matching"):
+            self.repos.setdefault(name, os.path.join(self.root, "missing-" + name))
         self.repos.setdefault("repo_main", os.path.join(self.root, "missing-main"))
         self.repos.setdefault("repo_feature", os.path.join(self.root, "missing-feature"))
         self.repos["not_a_repo"] = os.path.join(self.root, "plain")
@@ -1454,6 +1503,12 @@ WIN_BLOCK = [
      "recycle bin"),
     ("powershell -c 'Remove-ItemSafely proj'", "recycle bin"),
     ("nircmd moverecyclebin C:\\Users\\me\\proj", "recycle bin"),
+    # the destination of a PowerShell or cmd move: piped, a variable assigned the temporary folder, a
+    # move after cmd's do, the Recycle Bin at a drive root
+    ("powershell -c 'Get-ChildItem *.log | Move-Item -Destination $env:TEMP'", "temporary folder"),
+    ("powershell -c '$d = [IO.Path]::GetTempPath(); Move-Item proj $d'", "temporary folder"),
+    ('cmd //c "for /d %f in (*) do move %f %TEMP%"', "temporary folder"),
+    ("powershell -c 'Move-Item proj C:\\$Recycle.Bin\\'", "$recycle.bin"),
 ]
 WIN_ALLOW = [
     "cat C:/Users/me/proj/README.md",
@@ -1485,6 +1540,12 @@ WIN_ALLOW = [
     "powershell -c 'Copy-Item proj $env:TEMP -Recurse'",
     'cmd //c "robocopy proj %LOCALAPPDATA%\\Temp\\proj /E"',
     'cmd //c "move proj D:\\archive"',
+    # a move out of %TEMP%, a dry run, text that only mentions a move, a project folder named Recycled
+    "powershell -c 'Move-Item \"$env:TEMP\\download.zip\" .\\download.zip'",
+    "powershell -c 'Move-Item proj $env:TEMP -WhatIf'",
+    'cmd //c "robocopy proj %TEMP%\\proj /MOVE /L"',
+    "powershell -c \"Write-Host 'move proj to $env:TEMP later'\"",
+    "mv proj 'C:\\Users\\me\\Documents\\Recycled\\'",
 ]
 
 
@@ -1708,6 +1769,39 @@ LINUX_DISPOSAL_BLOCK = [
     ("perl -e 'rename \"old-site\", \"/tmp/old-site\"'", "rename"),
     ("ruby -e 'require \"fileutils\"; FileUtils.mv(\"old-site\", \"/tmp/\")'", "fileutils.mv"),
     ("python3 - <<'EOF'\nimport shutil\nshutil.move('old-site', '/tmp/old-site')\nEOF", "shutil.move"),
+    # the independent reviews (2026-10-27): an attached option value keeps its temporary folder
+    ('mv --target-directory="$(mktemp -d)" old-site', "temporary folder"),
+    ('mv -t"$(mktemp -d)" old-site', "temporary folder"),
+    ('D=$(mktemp -d); mv --target-directory="$D" old-site', "temporary folder"),
+    # an option's value is not the destination; an option the hook does not know is read both ways
+    ("rsync -a --remove-source-files old-site/ /tmp/old-site/ --exclude cache", "/tmp/old-site"),
+    ("rclone move old-site /tmp/old-site --log-file move.log", "/tmp/old-site"),
+    ("rclone --config my.conf move old-site /tmp/old-site", "/tmp/old-site"),
+    ("rsync --remove-source-files --some-new-flag value old-site/ /tmp/x/", "/tmp/x"),
+    # a source that only looks temporary: an unset $TMPDIR with a default, a climb out of the folder
+    ('mv "${TMPDIR:-.}/old-site" /tmp/', "/tmp"),
+    ('D=$(mktemp -d); mv "$D/../../home/me/proj/old-site" /tmp/', "/tmp"),
+    ('mv "$(mktemp -d >/dev/null; echo ~/proj)/old-site" /tmp/', "/tmp"),
+    # a listing flag does not make the rest of the command harmless
+    ("gio trash --list old-site", "the trash"),
+    # archive option syntax: an attached value, an option's value, an output archive
+    ("tar --remove-files -czf/tmp/old-site.tgz old-site", "/tmp/old-site.tgz"),
+    ("tar cf /tmp/old-site.tar --remove-files old-site", "/tmp/old-site.tar"),
+    ("zip -m -P password /tmp/old.zip old-site", "/tmp/old.zip"),
+    ("zip -m out.zip old-site --out /tmp/new.zip", "/tmp/new.zip"),
+    # mktemp by path and behind wrappers
+    ('mv old-site "$(/usr/bin/mktemp -d)"', "temporary folder"),
+    ('mv old-site "$(env mktemp -d)"', "temporary folder"),
+    ('mv old-site "$(command mktemp -d)"', "temporary folder"),
+    ('mv old-site "$(TMPDIR=/tmp nice -n 5 mktemp -d)"', "temporary folder"),
+    # inline code: the destination argument, a shell mv inside a string, a source joined onto a path
+    ("python3 -c \"import subprocess; subprocess.run(['mv', 'old-site', '/tmp/'])\"", "'mv', 'old-site'"),
+    ("python3 -c \"import os; os.system('mv old-site /tmp/')\"", "mv old-site /tmp/"),
+    ("python3 -c \"import shutil; shutil.move('old-site', dst='/tmp/x')\"", "shutil.move"),
+    ("python3 -c \"import shutil, tempfile, os; d = tempfile.mkdtemp(); p = '/home/me/proj/old-site'; "
+     "shutil.move(os.path.join(d, p), d)\"", "shutil.move"),
+    ("node -e \"const t = require('os').tmpdir(); require('fs').renameSync('old-site', t + '/x')\"", "renamesync"),
+    ("ruby -e 'require \"fileutils\"; FileUtils.mv \"old-site\", \"/tmp/\"'", "fileutils.mv"),
 ]
 LINUX_DISPOSAL_ALLOW = [
     "mv a.txt b.txt",
@@ -1737,6 +1831,34 @@ LINUX_DISPOSAL_ALLOW = [
     "python3 -c \"import tempfile; print(tempfile.mkdtemp())\"",
     "python3 -c \"print('/tmp/x'.replace('/tmp', ''))\"",
     "node -e \"require('fs').renameSync('a.txt', 'b.txt')\"",
+    # the independent reviews (2026-10-27): inline code is judged by the destination it names, so a
+    # temporary folder used for the work, a word such as "mi" or "move", and a move out of /tmp all pass
+    "python3 -c \"import tempfile, shutil, os; d = tempfile.mkdtemp(); shutil.copy('a.docx', d); "
+    "shutil.move(os.path.join(d, 'a.docx'), 'out.docx')\"",
+    "python3 -c \"import tempfile; d = tempfile.mkdtemp(); print('Dej mi vědět')\"",
+    "python3 -c \"import os, tempfile; t = tempfile.mkdtemp(); os.replace('x.tmp', 'x.docx')\"",
+    "python3 - <<'EOF'\nimport tempfile, zipfile, os, shutil\nwith tempfile.TemporaryDirectory() as d:\n"
+    "    zipfile.ZipFile('deck.pptx').extractall(d)\n"
+    "    os.replace(os.path.join(d, 'ppt', 'slide1.tmp'), os.path.join(d, 'ppt', 'slide1.xml'))\n"
+    "    shutil.make_archive(os.path.join(d, 'out'), 'zip', d)\n"
+    "    shutil.move(os.path.join(d, 'out.zip'), 'deck-edited.pptx')\nEOF",
+    "python3 - <<'EOF'\nimport tempfile\nwith tempfile.TemporaryDirectory() as d:\n"
+    "    # rename placeholders in the deck\n    print(d)\nEOF",
+    "node -e \"const t = require('os').tmpdir(); console.log('move on')\"",
+    "python3 -c \"import shutil; shutil.move('/tmp/download.zip', './download.zip')\"",
+    "python3 -c \"print('move files to the archive')\"",
+    # dry runs move nothing
+    "rsync -an --remove-source-files old-site/ /tmp/old-site/",
+    "rclone move --dry-run old-site /tmp/old-site",
+    # a folder named like an old Recycle Bin that is not at a drive root
+    "mv draft.pdf Recycled/",
+    "mv old.pdf ~/Documents/Recycled/old.pdf",
+    "mv old.pdf RECYCLER/",
+    # moves that stay inside a folder mktemp made; restoring from the trash
+    'D=$(mktemp -d); mv "$D/a" "$D/b"',
+    'mv "$(mktemp -d)/out" /tmp/out',
+    "gio trash --restore trash:///old-site",
+    "zip -r -m -P secret archive/old.zip old-site",
 ]
 MAC_DISPOSAL_BLOCK = [
     ("mv old-site ~/.Trash/", "~/.trash"),
@@ -1751,6 +1873,14 @@ MAC_DISPOSAL_BLOCK = [
     ("osascript -e 'tell application \"Finder\"' -e 'delete POSIX file \"/Users/me/proj/old-site\"' -e 'end tell'",
      "finder"),
     ("osascript -l JavaScript -e 'Application(\"Finder\").delete(Path(\"/Users/me/proj/old-site\"))'", "finder"),
+    # the short forms of telling Finder (the independent reviews, 2026-10-27), and a Windows drive's old
+    # Recycle Bin at the root of a mounted volume
+    ("osascript -e 'tell app \"Finder\" to delete POSIX file \"/Users/me/proj/old-site\"'", "finder"),
+    ("osascript -e 'tell application id \"com.apple.finder\" to delete POSIX file \"/Users/me/proj/old-site\"'",
+     "com.apple.finder"),
+    ("osascript -l JavaScript -e 'Application(\"com.apple.finder\").delete(Path(\"/Users/me/proj/old-site\"))'",
+     "com.apple.finder"),
+    ("mv old-site /Volumes/USB/RECYCLER/", "recycler"),
 ]
 MAC_DISPOSAL_ALLOW = [
     "mv old-site ~/Documents/archive/",
@@ -1758,6 +1888,9 @@ MAC_DISPOSAL_ALLOW = [
     "mv /var/folders/zz/abc123/T/report.pdf ./",
     "osascript -e 'display notification \"done\"'",
     "osascript -e 'tell application \"Finder\" to open POSIX file \"/Users/me/proj\"'",
+    # a Finder move within the project is a move, not a trip to the trash
+    "osascript -e 'tell application \"Finder\" to move POSIX file \"/Users/me/proj/a.txt\" to "
+    "POSIX file \"/Users/me/proj/archive/\"'",
 ]
 
 
@@ -1835,6 +1968,46 @@ class DisposalMoveTests(unittest.TestCase):
             with self.subTest(command=command):
                 r = run(command)
                 self.assertEqual((r.returncode, r.stderr), (0, ""))
+
+
+class DisposalPerformanceTests(unittest.TestCase):
+    """Long text is checked in linear time. The first version's Windows trash pattern rescanned the rest of
+    the line at every nircmd (84 KB took over 8 seconds); the bound here is generous on purpose."""
+
+    BOUND = 5.0
+
+    def time_it(self, hook, env, command, cwd):
+        start = time.monotonic()
+        with mock.patch.dict(os.environ, env):
+            try:
+                hook.check_bash(command, cwd)
+                kind = "allow"
+            except hook.Block:
+                kind = "block"
+            except hook.ParseError:
+                kind = "unanalysable"
+        return kind, time.monotonic() - start
+
+    def test_long_text(self):
+        win = load_hook_as("win32", env=WIN_ENV)
+        linux_env = {"HOME": "/home/me", "TMPDIR": ""}
+        linux = load_hook_as("linux", env=linux_env)
+        cases = [
+            (win, WIN_ENV, WIN_CWD, "powershell -c 'Write-Output \"" + "nircmd " * 12000 + "\"'", "allow"),
+            (win, WIN_ENV, WIN_CWD, "powershell -c 'Write-Output " + "robocopy " * 12000 + "'", "allow"),
+            (win, WIN_ENV, WIN_CWD, "powershell -c '" + "mi a b; " * 8000 + "'", "allow"),
+            (linux, linux_env, "/home/me/proj", "osascript -e '" + "tell app \"Finder\" move " * 4000 + "'", "allow"),
+            (linux, linux_env, "/home/me/proj", "python3 -c \"" + "x.move(a); " * 6000 + "\"", "allow"),
+            (linux, linux_env, "/home/me/proj", "python3 -c \"" + "os.system('mv a b'); " * 4000 + "\"", "allow"),
+            # calls nested in unclosed calls would be read again and again: past a budget the code counts
+            # as unanalysable, which blocks
+            (linux, linux_env, "/home/me/proj", "python3 -c \"" + "move(" * 12000 + "\"", "unanalysable"),
+        ]
+        for hook, env, cwd, command, expected in cases:
+            with self.subTest(command=command[:60], length=len(command)):
+                kind, seconds = self.time_it(hook, env, command, cwd)
+                self.assertEqual(kind, expected)
+                self.assertLess(seconds, self.BOUND)
 
 
 class ConfigDirTests(unittest.TestCase):
