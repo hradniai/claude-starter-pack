@@ -6,7 +6,7 @@
       "Read",
       "Glob",
       "Grep",
-      "Edit(*)",
+      "Edit",
       "Bash(ls *)",
       "Bash(find *)",
       "Bash(grep *)",
